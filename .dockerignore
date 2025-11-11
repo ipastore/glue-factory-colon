@@ -1,0 +1,37 @@
+# ignore data and big binaries
+data/
+data/**
+outputs/
+*.tar
+*.tar.gz
+*.zip
+
+# ignore VCS and local envs
+.git
+.gitmodules
+.gitignore
+.env
+venv/
+env/
+__pycache__/
+*.pyc
+*.egg-info
+build/
+dist/
+*.py[cod]
+*.so
+.eggs
+.DS_Store
+*.pth
+*.pt
+*.onnx
+*.ckpt
+.pytest_cach/
+.vscode/
+assets/
+docs/
+CMakeFiles/
+pytest.xml
+AGENTS.md
+.coverage
+docs/
