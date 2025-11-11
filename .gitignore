@@ -7,3 +7,9 @@
 /data/
 /outputs/
 __pycache__
+/CMakeFiles/
+/.vscode/
+AGENTS.md
+/.pytest_cache/
+pytest.xml
+.coverage

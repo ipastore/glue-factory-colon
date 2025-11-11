@@ -13,8 +13,8 @@ data:
     num_overlap_bins: 3
     read_depth: true
     read_image: true
-    batch_size: 32
-    num_workers: 14
+    batch_size: 32 # 8 for RTX
+    num_workers: 14 # 8 for RTX
     load_features:
         do: false  # enable this if you have cached predictions
         path: exports/megadepth-undist-depth-r1024_SP-k2048-nms3/{scene}.h5
@@ -53,6 +53,7 @@ train:
         exp_div_10: 10
     dataset_callback_fn: sample_new_items
     plot: [5, 'gluefactory.visualization.visualize_batch.make_match_figures']
+    load_experiment: sp+lg_pretrained           # sp+lg_homography/checkpoint_best.tar   
 benchmarks:
     megadepth1500:
         data:
