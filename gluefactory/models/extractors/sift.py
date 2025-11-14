@@ -100,26 +100,24 @@ class SIFT(BaseModel):
                     "Cannot find module pycolmap: install it with pip"
                     "or use backend=opencv."
                 )
-            options = {
-                "peak_threshold": self.conf.detection_threshold,
-                "edge_threshold": self.conf.edge_threshold,
-                "first_octave": self.conf.first_octave,
-                "num_octaves": self.conf.num_octaves,
-                "normalization": pycolmap.Normalization.L2,  # L1_ROOT is buggy.
-            }
+            options = pycolmap.FeatureExtractionOptions()
+            sift_opts = options.sift
+            
+            # Set SIFT-specific options via the nested .sift attribute
+            # prefer the nested .sift namespace if available, otherwise use top-level options
+            # sift_specific = getattr(sift_opts, "sift", sift_opts)
+            
+            sift_opts.peak_threshold = self.conf.detection_threshold
+            sift_opts.edge_threshold = self.conf.edge_threshold
+            sift_opts.first_octave = self.conf.first_octave
+            sift_opts.num_octaves = self.conf.num_octaves
+            sift_opts.normalization = pycolmap.Normalization.L2  # L1_ROOT is buggy.
+            sift_opts.max_num_features = self.conf.max_num_keypoints
+
             device = (
-                "auto" if backend == "pycolmap" else backend.replace("pycolmap_", "")
-            )
-            if (
-                backend == "pycolmap_cpu" or not pycolmap.has_cuda
-            ) and pycolmap.__version__ < "0.5.0":
-                warnings.warn(
-                    "The pycolmap CPU SIFT is buggy in version < 0.5.0, "
-                    "consider upgrading pycolmap or use the CUDA version.",
-                    stacklevel=1,
-                )
-            else:
-                options["max_num_features"] = self.conf.max_num_keypoints
+                pycolmap.Device.auto if backend == "pycolmap"
+                else getattr(pycolmap.Device, backend.replace("pycolmap_", ""))
+)
             self.sift = pycolmap.Sift(options=options, device=device)
         elif backend == "opencv":
             self.sift = cv2.SIFT_create(
@@ -135,7 +133,7 @@ class SIFT(BaseModel):
             )
 
     def extract_single_image(self, image: torch.Tensor):
-        image_np = image.cpu().numpy().squeeze(0)
+        image_np = np.clip(image.cpu().numpy().squeeze(0), 0.0, 1.0)
 
         if self.conf.backend.startswith("pycolmap"):
             if version.parse(pycolmap.__version__) >= version.parse("0.5.0"):
@@ -178,20 +176,26 @@ class SIFT(BaseModel):
                 pred["oris"],
                 image_np.shape,
                 self.conf.nms_radius,
-                pred["keypoint_scores"],
+                pred.get("keypoint_scores", None),
             )
             pred = {k: v[keep] for k, v in pred.items()}
 
         pred = {k: torch.from_numpy(v) for k, v in pred.items()}
-        if scores is not None:
-            # Keep the k keypoints with highest score
-            num_points = self.conf.max_num_keypoints
-            if num_points is not None and len(pred["keypoints"]) > num_points:
+
+        # Keep only the top-k keypoints by score or scale
+        num_points = self.conf.max_num_keypoints
+        if num_points is not None and len(pred["keypoints"]) > num_points:
+            # Prefer keypoint scores if available; otherwise fall back to scales
+            if "keypoint_scores" in pred:
                 indices = torch.topk(pred["keypoint_scores"], num_points).indices
-                pred = {k: v[indices] for k, v in pred.items()}
+            else:
+                # Use scales as a proxy for keypoint quality when scores are unavailable
+                indices = torch.topk(pred["scales"], num_points).indices
+            pred = {k: v[indices] for k, v in pred.items()}
 
         if self.conf.force_num_keypoints:
-            num_points = min(self.conf.max_num_keypoints, len(pred["keypoints"]))
+            num_points = max(self.conf.max_num_keypoints, len(pred["keypoints"]))
+
             pred["keypoints"] = pad_to_length(
                 pred["keypoints"],
                 num_points,
@@ -204,7 +208,7 @@ class SIFT(BaseModel):
             pred["descriptors"] = pad_to_length(
                 pred["descriptors"], num_points, -2, mode="zeros"
             )
-            if pred["keypoint_scores"] is not None:
+            if pred.get("keypoint_scores", None) is not None:
                 scores = pad_to_length(
                     pred["keypoint_scores"], num_points, -1, mode="zeros"
                 )
