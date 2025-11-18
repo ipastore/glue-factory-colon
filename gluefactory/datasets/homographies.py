@@ -61,6 +61,8 @@ class HomographyDataset(BaseDataset):
         "triplet": False,
         "right_only": False,  # image0 is orig (rescaled), image1 is right
         "reseed": False,
+        "crop_vignette": False,  # For endomapper. Since we are using a patch smaller than the original image size, we take advantage of resize to crop the vignette
+        "vignette_crop_coords": None,  # [x1, x2, y1, y2] or None for auto-center
         "homography": {
             "difficulty": 0.8,
             "translation": 1.0,
@@ -93,40 +95,76 @@ class HomographyDataset(BaseDataset):
                 self.download_revisitop1m()
             else:
                 raise FileNotFoundError(data_dir)
+        
+        #Handle split-based folder structure (endomapper)
+        train_dir = data_dir / "train"
+        val_dir = data_dir / "val"
 
-        image_dir = data_dir / conf.image_dir
-        images = []
-        if conf.image_list is None:
-            glob = [conf.glob] if isinstance(conf.glob, str) else conf.glob
-            for g in glob:
-                images += list(image_dir.glob("**/" + g))
-            if len(images) == 0:
-                raise ValueError(f"Cannot find any image in folder: {image_dir}.")
-            images = [i.relative_to(image_dir).as_posix() for i in images]
-            images = sorted(images)  # for deterministic behavior
-            logger.info("Found %d images in folder.", len(images))
-        elif isinstance(conf.image_list, (str, Path)):
-            image_list = data_dir / conf.image_list
-            if not image_list.exists():
-                raise FileNotFoundError(f"Cannot find image list {image_list}.")
-            images = image_list.read_text().rstrip("\n").split("\n")
-            for image in images:
-                if self.conf.check_file_exists and not (image_dir / image).exists():
-                    raise FileNotFoundError(image_dir / image)
-            logger.info("Found %d images in list file.", len(images))
-        elif isinstance(conf.image_list, omegaconf.listconfig.ListConfig):
-            images = conf.image_list.to_container()
-            for image in images:
-                if self.conf.check_file_exists and not (image_dir / image).exists():
-                    raise FileNotFoundError(image_dir / image)
+        if train_dir.exists() and val_dir.exists():
+            # Load images from train and val folders separately
+            train_images = self._load_images_from_folder(train_dir, conf)
+            val_images = self._load_images_from_folder(val_dir, conf)
+           
+            if conf.shuffle_seed is not None:
+                np.random.RandomState(conf.shuffle_seed).shuffle(train_images)
+                np.random.RandomState(conf.shuffle_seed + 1).shuffle(val_images)
+            if conf.train_size > 0:
+                train_images = train_images[: conf.train_size]
+            if conf.val_size > 0:
+                val_images = val_images[: conf.val_size]
+            
+            self.images = {"train": train_images, "val": val_images}
         else:
-            raise ValueError(conf.image_list)
+            #Fallback to original behavior (revisitop1m)
+            image_dir = data_dir / conf.image_dir
+            images = []
+            if conf.image_list is None:
+                glob = [conf.glob] if isinstance(conf.glob, str) else conf.glob
+                for g in glob:
+                    images += list(image_dir.glob("**/" + g))
+                if len(images) == 0:
+                    raise ValueError(f"Cannot find any image in folder: {image_dir}.")
+                images = [i.relative_to(image_dir).as_posix() for i in images]
+                images = sorted(images)  # for deterministic behavior
+                logger.info("Found %d images in folder.", len(images))
+            elif isinstance(conf.image_list, (str, Path)):
+                image_list = data_dir / conf.image_list
+                if not image_list.exists():
+                    raise FileNotFoundError(f"Cannot find image list {image_list}.")
+                images = image_list.read_text().rstrip("\n").split("\n")
+                for image in images:
+                    if self.conf.check_file_exists and not (image_dir / image).exists():
+                        raise FileNotFoundError(image_dir / image)
+                logger.info("Found %d images in list file.", len(images))
+            elif isinstance(conf.image_list, omegaconf.listconfig.ListConfig):
+                images = conf.image_list.to_container()
+                for image in images:
+                    if self.conf.check_file_exists and not (image_dir / image).exists():
+                        raise FileNotFoundError(image_dir / image)
+            else:
+                raise ValueError(conf.image_list)
 
-        if conf.shuffle_seed is not None:
-            np.random.RandomState(conf.shuffle_seed).shuffle(images)
-        train_images = images[: conf.train_size]
-        val_images = images[conf.train_size : conf.train_size + conf.val_size]
-        self.images = {"train": train_images, "val": val_images}
+            if conf.shuffle_seed is not None:
+                np.random.RandomState(conf.shuffle_seed).shuffle(images)
+            train_images = images[: conf.train_size]
+            val_images = images[conf.train_size : conf.train_size + conf.val_size]
+            self.images = {"train": train_images, "val": val_images}
+    
+    #For endomapper
+    def _load_images_from_folder(self, folder, conf):
+        """Load images from a specific folder using glob patterns."""
+        images = []
+        glob = [conf.glob] if isinstance(conf.glob, str) else conf.glob
+        for g in glob:
+            images += list(folder.glob("**/" + g))
+        if len(images) == 0:
+            logger.warning(f"No images found in folder: {folder}")
+            return []
+        # Make paths relative to the split folder for compatibility
+        images = [i.relative_to(folder).as_posix() for i in images]
+        images = sorted(images)
+        logger.info(f"Found {len(images)} images in {folder.name}/")
+        return images
 
     def download_revisitop1m(self):
         data_dir = DATA_PATH / self.conf.data_dir
@@ -157,7 +195,13 @@ class _Dataset(torch.utils.data.Dataset):
         self.conf = conf
         self.split = split
         self.image_names = np.array(image_names)
-        self.image_dir = DATA_PATH / conf.data_dir / conf.image_dir
+
+        # Handle split-based folder structure (endomapper)
+        base_dir = DATA_PATH / conf.data_dir
+        if (base_dir / split).exists():
+            self.image_dir = base_dir / split
+        else:
+            self.image_dir = base_dir / conf.image_dir
 
         aug_conf = conf.photometric
         aug_name = aug_conf.name
@@ -239,6 +283,19 @@ class _Dataset(torch.utils.data.Dataset):
             logging.warning("Image %s could not be read.", name)
             img = np.zeros((1024, 1024) + (() if self.conf.grayscale else (3,)))
         img = img.astype(np.float32) / 255.0
+
+
+        # For endomapper: apply center crop to remove vignette borders
+        if self.conf.crop_vignette:
+            if self.conf.vignette_crop_coords is not None:
+                # Use fixed crop coordinates
+                x1, x2, y1, y2 = self.conf.vignette_crop_coords
+                img = img[y1:y2, x1:x2]
+            else:
+                # Fallback: no crop if coordinates not specified
+                logger.warning("crop_vignette enabled but vignette_crop_coords not set")
+
+
         size = img.shape[:2][::-1]
         ps = self.conf.homography.patch_shape
 

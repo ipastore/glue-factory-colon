@@ -13,3 +13,4 @@ AGENTS.md
 /.pytest_cache/
 pytest.xml
 .coverage
+/docs/

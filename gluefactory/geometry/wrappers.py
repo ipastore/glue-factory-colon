@@ -260,6 +260,7 @@ class Camera(TensorWrapper):
             fx = fy = f
             if model == "SIMPLE_RADIAL":
                 params = np.r_[params, 0.0]
+        # TODO: Implement OPENCV_FISHEY model
         else:
             raise NotImplementedError(model)
 

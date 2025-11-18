@@ -226,6 +226,7 @@ class SIFT(BaseModel):
             if "image_size" in data.keys():
                 # avoid extracting points in padded areas
                 w, h = data["image_size"][k]
+                w, h = int(w), int(h)
                 img = img[:, :h, :w]
             p = self.extract_single_image(img)
             pred.append(p)
