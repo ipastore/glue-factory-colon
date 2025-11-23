@@ -4,6 +4,7 @@ from typing import Callable, List, Optional
 
 import numpy as np
 import torch
+import torch.utils.checkpoint
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from torch import nn

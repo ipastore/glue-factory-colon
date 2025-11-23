@@ -4,18 +4,33 @@ from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
 
-def check_image(path):
-    """Check if an image can be opened."""
+# Try to import OpenCV; optional but useful
+try:
+    import cv2
+    import numpy as np
+except Exception:
+    cv2 = None
+    np = None
+
+def check_image(path: Path):
+    """Check if an image can be opened using cv2.imread (same as read_image)."""
+    path = Path(path)
+    if not path.exists():
+        return False, f"File not found: {path}"
+
+    if cv2 is None:
+        return False, "OpenCV (cv2) not available in this environment"
+
     try:
-        with Image.open(path) as img:
-            img.verify()
-        # Re-open for actual load test
-        with Image.open(path) as img:
-            img.load()
+        # mirror read_image: read in color by default
+        image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if image is None:
+            return False, "cv2.imread returned None (could not decode image)"
+        # success
         return True
     except Exception as e:
-        return False, str(e)
-
+        return False, f"cv2.imread exception: {e}"
+    
 def main():
     data_dir = Path("/media/student/HDD/nacho/glue-factory/data/endomapper/all_colmap_sequences")
     
@@ -38,7 +53,7 @@ def main():
         
         # Save list
         if corrupted:
-            output = data_dir / f"corrupted_{split}.txt"
+            output = data_dir / f"corrupted_{split}_2.txt"
             with open(output, 'w') as f:
                 for path, error in corrupted:
                     f.write(f"{path.name}\t{error}\n")

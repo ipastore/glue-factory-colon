@@ -26,6 +26,7 @@ model:
         force_num_keypoints: True
         nms_radius: 3
         trainable: False
+        detection_threshold: 0.0015
     ground_truth:
         name: matchers.homography_matcher
         th_positive: 3

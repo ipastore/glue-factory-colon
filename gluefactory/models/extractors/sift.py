@@ -100,23 +100,56 @@ class SIFT(BaseModel):
                     "Cannot find module pycolmap: install it with pip"
                     "or use backend=opencv."
                 )
-            options = pycolmap.FeatureExtractionOptions()
-            sift_opts = options.sift
             
-            # Set SIFT-specific options via the nested .sift attribute
-            # prefer the nested .sift namespace if available, otherwise use top-level options
-            # sift_specific = getattr(sift_opts, "sift", sift_opts)
-            
-            sift_opts.peak_threshold = self.conf.detection_threshold
-            sift_opts.edge_threshold = self.conf.edge_threshold
-            sift_opts.first_octave = self.conf.first_octave
-            sift_opts.num_octaves = self.conf.num_octaves
-            sift_opts.normalization = pycolmap.Normalization.L2  # L1_ROOT is buggy.
-            sift_opts.max_num_features = self.conf.max_num_keypoints
+            pycolmap_version = version.parse(pycolmap.__version__)
 
-            device = (
-                pycolmap.Device.auto if backend == "pycolmap"
-                else getattr(pycolmap.Device, backend.replace("pycolmap_", ""))
+            if pycolmap_version < version.parse("3.13.0"):
+                # options = {
+                #     "peak_threshold": self.conf.detection_threshold,
+                #     "edge_threshold": self.conf.edge_threshold,
+                #     "first_octave": self.conf.first_octave,
+                #     "num_octaves": self.conf.num_octaves,
+                #     "normalization": pycolmap.Normalization.L2,  # L1_ROOT is buggy.
+                # }
+                options = pycolmap.SiftExtractionOptions()
+                options.peak_threshold = self.conf.detection_threshold
+                options.edge_threshold = self.conf.edge_threshold
+                options.first_octave = self.conf.first_octave
+                options.num_octaves = self.conf.num_octaves
+                options.normalization = pycolmap.Normalization.L2  # L1_ROOT is buggy.
+                device = (
+                    "auto" if backend == "pycolmap" else backend.replace("pycolmap_", "")
+                )
+                if (
+                backend == "pycolmap_cpu" or not pycolmap.has_cuda
+                ) and pycolmap_version < version.parse("0.5.0"):
+                    warnings.warn(
+                        "The pycolmap CPU SIFT is buggy in version < 0.5.0, "
+                        "consider upgrading pycolmap or use the CUDA version.",
+                        stacklevel=1,
+                    )
+                else: 
+                    # options["max_num_features"] = self.conf.max_num_keypoints
+                    options.max_num_features = self.conf.max_num_keypoints
+
+            else: 
+                options = pycolmap.FeatureExtractionOptions()
+                sift_opts = options.sift
+                
+                # Set SIFT-specific options via the nested .sift attribute
+                # prefer the nested .sift namespace if available, otherwise use top-level options
+                # sift_specific = getattr(sift_opts, "sift", sift_opts)
+                
+                sift_opts.peak_threshold = self.conf.detection_threshold
+                sift_opts.edge_threshold = self.conf.edge_threshold
+                sift_opts.first_octave = self.conf.first_octave
+                sift_opts.num_octaves = self.conf.num_octaves
+                sift_opts.normalization = pycolmap.Normalization.L2  # L1_ROOT is buggy.
+                sift_opts.max_num_features = self.conf.max_num_keypoints
+
+                device = (
+                    pycolmap.Device.auto if backend == "pycolmap"
+                    else getattr(pycolmap.Device, backend.replace("pycolmap_", ""))
 )
             self.sift = pycolmap.Sift(options=options, device=device)
         elif backend == "opencv":
@@ -183,6 +216,7 @@ class SIFT(BaseModel):
         pred = {k: torch.from_numpy(v) for k, v in pred.items()}
 
         # Keep only the top-k keypoints by score or scale
+        # Since max_num_keypoints is a soft upper limit, we must re filter to check
         num_points = self.conf.max_num_keypoints
         if num_points is not None and len(pred["keypoints"]) > num_points:
             # Prefer keypoint scores if available; otherwise fall back to scales
@@ -192,6 +226,10 @@ class SIFT(BaseModel):
                 # Use scales as a proxy for keypoint quality when scores are unavailable
                 indices = torch.topk(pred["scales"], num_points).indices
             pred = {k: v[indices] for k, v in pred.items()}
+
+        # # Prints to debug to find optimal parameters for endomapper
+        # num_keypoints = len(pred["keypoints"])
+        # print(f"Number of keypoints: {num_keypoints}") 
 
         if self.conf.force_num_keypoints:
             num_points = max(self.conf.max_num_keypoints, len(pred["keypoints"]))

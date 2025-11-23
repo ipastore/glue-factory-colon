@@ -1,6 +1,8 @@
 from pathlib import Path
 
 root = Path(__file__).parent.parent  # top-level directory
+HDD_path = Path("/media/student/HDD/nacho/glue-factory/")
+
 DATA_PATH = root / "data/"  # datasets and pretrained weights
 TRAINING_PATH = root / "outputs/training/"  # training checkpoints
 EVAL_PATH = root / "outputs/results/"  # evaluation results

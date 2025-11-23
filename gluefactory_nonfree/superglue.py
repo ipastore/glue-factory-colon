@@ -56,6 +56,8 @@ from copy import deepcopy
 
 import torch
 from torch import nn
+import torch.utils.checkpoint
+
 
 from gluefactory.models.base_model import BaseModel
 
