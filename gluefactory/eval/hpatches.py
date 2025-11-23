@@ -50,8 +50,6 @@ class HPatchesPipeline(EvalPipeline):
     export_keys = [
         "keypoints0",
         "keypoints1",
-        "keypoint_scores0",
-        "keypoint_scores1",
         "matches0",
         "matches1",
         "matching_scores0",
@@ -67,6 +65,8 @@ class HPatchesPipeline(EvalPipeline):
         "line_matches1",
         "line_matching_scores0",
         "line_matching_scores1",
+        "keypoint_scores0",
+        "keypoint_scores1",
     ]
 
     def _init(self, conf):
