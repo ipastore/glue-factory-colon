@@ -58,7 +58,7 @@ configs = {
     },
     "pycolmap-sift-gpu": {
         "name": f"r{resize}_pycolmap_SIFTGPU-nms3-fixed-k{n_kpts}",
-        "keys": ["keypoints", "descriptors", "keypoint_scores", "oris", "scales"],
+        "keys": ["keypoints", "descriptors", "oris", "scales"],
         "gray": True,
         "conf": {
             "name": "extractors.sift",
