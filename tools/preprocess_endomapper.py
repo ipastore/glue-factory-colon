@@ -190,6 +190,7 @@ def process_sequence(
         distortion_coeffs=np.stack(distortion_coeffs, axis=0),
         camera_model=camera_model,
         map_id=map_id,
+        seq=seq_dir.name,
         overlap_matrix=overlap_matrix,
         keypoints_per_image=np.array(keypoints_list, dtype=object),
         descriptors_per_image=np.array(descriptors_list, dtype=object),
