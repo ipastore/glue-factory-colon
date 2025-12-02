@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import torch
 
@@ -20,8 +20,8 @@ def pad_to_length(
     x,
     length: int,
     pad_dim: int = -2,
-    mode: str = "zeros",  # zeros, ones, random, random_c
-    bounds: Tuple[int] = (None, None),
+    mode: Union[str, bool] = "zeros",  # zeros, ones, random, random_c, minus_one, False
+    bounds: Tuple[Optional[int], Optional[int]] = (None, None),
 ):
     shape = list(x.shape)
     d = x.shape[pad_dim]
@@ -31,16 +31,21 @@ def pad_to_length(
     shape[pad_dim] = length - d
 
     low, high = bounds
+    mode_key = mode.lower() if isinstance(mode, str) else mode
 
-    if mode == "zeros":
+    if mode_key == "zeros":
         xn = torch.zeros(*shape, device=x.device, dtype=x.dtype)
-    elif mode == "ones":
+    elif mode_key == "ones":
         xn = torch.ones(*shape, device=x.device, dtype=x.dtype)
-    elif mode == "random":
+    elif mode_key == "minus_one":
+        xn = torch.full(shape, -1, device=x.device, dtype=x.dtype)
+    elif mode_key is False or mode_key == "false":
+        xn = torch.zeros(*shape, device=x.device, dtype=x.dtype)
+    elif mode_key == "random":
         low = low if low is not None else x.min()
         high = high if high is not None else x.max()
         xn = torch.empty(*shape, device=x.device).uniform_(low, high)
-    elif mode == "random_c":
+    elif mode_key == "random_c":
         low, high = bounds  # we use the bounds as fallback for empty seq.
         xn = torch.cat(
             [

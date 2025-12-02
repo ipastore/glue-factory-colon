@@ -1,9 +1,8 @@
 import argparse
 import logging
-import shutil
-import tarfile
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,14 +12,14 @@ from omegaconf import OmegaConf
 from ..geometry.wrappers import Camera, Pose
 from ..settings import DATA_PATH
 from ..utils.tools import fork_rng
-from ..visualization.viz2d import plot_heatmaps, plot_image_grid
+from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
-from .utils import rotate_intrinsics, rotate_pose_inplane, scale_intrinsics
-from ..utils.misc import pad_to_length
+from .utils import scale_intrinsics
+from ..models.utils.misc import pad_to_length
 
 
 logger = logging.getLogger(__name__)
-seq_lists_path = Path(__file__).parent / "endomapper_seq_lists"
+seq_lists_path = Path(__file__).parent / "endomapper_seq_map_lists"
 
 
 def sample_n(data, num, seed=None):
@@ -37,15 +36,15 @@ class Endomapper(BaseDataset):
         "data_dir": "Endomapper_CUDASIFT_NOV25/",
         "npz_subpath": "processed_npz/",
         # Training
-        "train_split": "train_seqs.txt",
-        "train_num_per_seq": 500,
+        "train_split": "train_seqs_maps.txt",
+        "train_num_per_scene": 500,
         # Validation
-        "val_split": "val_seqs.txt",
-        "val_num_per_seq": None,
+        "val_split": "val_seqs_maps.txt",
+        "val_num_per_scene": None,
         "val_pairs": None,
         # Test
-        "test_split": "test_seqs.txt",
-        "test_num_per_seq": None,
+        "test_split": "test_seqs_maps.txt",
+        "test_num_per_scene": None,
         "test_pairs": None,
         # data sampling
         "views": 2,     # Triplet Dataset not implemented
@@ -90,39 +89,56 @@ class _PairDataset(torch.utils.data.Dataset):
             raise ValueError(f"Unknown split configuration: {split_conf}.")
         seqs_maps = sorted(set(seqs_maps))
 
-        self.seq = {}
-        self.map_id = {}
-        self.image_names = {}
-        self.poses = {}
-        self.intrinsics = {}
-        self.valid = {}
-        self.dist_coeffs = {}
-        self.point3D_ids={}
-        self.point3D_coords={}
-        self.overlap_matrix = {}
 
-        # load data
+        self.seq: Dict[str, str] = {}
+        self.map_id: Dict[str, str] = {}
+        self.image_names: Dict[str, np.ndarray] = {}
+        self.poses: Dict[str, np.ndarray] = {}
+        self.intrinsics: Dict[str, np.ndarray] = {}
+        self.valid: Dict[str, np.ndarray] = {}
+        self.dist_coeffs: Dict[str, np.ndarray] = {}
+        self.point3D_ids_all: Dict[str, np.ndarray] = {}
+        self.point3D_coords_all: Dict[str, np.ndarray] = {}
+        self.overlap_matrix: Dict[str, np.ndarray] = {}
+        self.keypoints: Dict[str, np.ndarray] = {}
+        self.descriptors: Dict[str, np.ndarray] = {}
+        self.depths: Dict[str, np.ndarray] = {}
+        self.scales: Dict[str, np.ndarray] = {}
+        self.orientations: Dict[str, np.ndarray] = {}
+        self.scores: Dict[str, np.ndarray] = {}
+        self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
+        self.valid_depth_mask: Dict[str, np.ndarray] = {}
+        self.valid_3d_mask: Dict[str, np.ndarray] = {}
+
         self.seqs_maps = []
         for seq_map in seqs_maps:
-            path = self.conf.data_dir / self.conf.npz_subpath / (seq_map + ".npz")
+            path = self.root / self.conf.npz_subpath / f"{seq_map}.npz"
             try:
                 data_npz = np.load(str(path), allow_pickle=True)
             except Exception:
                 logger.warning(
-                    "Cannot load seq_map data for seq_map %s at %s.", seq_map, path
+                    "Cannot load seq_map data for %s at %s", seq_map, path
                 )
                 continue
+
             self.image_names[seq_map] = data_npz["image_names"]
+            #TODO filter with number of image_names to skip small maps
             self.poses[seq_map] = data_npz["poses"]
             self.intrinsics[seq_map] = data_npz["intrinsics"]
-            self.map_id[seq_map] = data_npz["map_id"]
-            self.seq[seq_map] = data_npz["seq"]
-            self.point3D_ids[seq_map] = data_npz["point3D_ids_all"]
-            self.point3D_coords[seq_map] = data_npz["point3D_coords_all"]
-            self.dist_coeffs[seq_map] = data_npz["dist_coeffs"]
-            self.overlap_matrix[seq_map] = data_npz["overlap_matrix"]
+
+            self.map_id[seq_map] = str(np.asarray(data_npz["map_id"]).item())
+            self.seq[seq_map] = str(np.asarray(data_npz["seq"]).item())
+            self.point3D_ids_all[seq_map] = data_npz["point3D_ids"]
+            self.point3D_coords_all[seq_map] = data_npz["point3D_coords"]
+            self.dist_coeffs[seq_map] = data_npz["distortion_coeffs"]
+            self.overlap_matrix[seq_map] = data_npz["overlap_matrix"].astype(
+                np.float32, copy=False
+            )
 
             self.seqs_maps.append(seq_map)
+
+        if not self.seqs_maps:
+            raise ValueError("No Endomapper sequences loaded for split.")
 
         if load_sample:
             self.sample_new_items(conf.seed)
@@ -132,7 +148,7 @@ class _PairDataset(torch.utils.data.Dataset):
         logger.info("Sampling new %s data with seed %d.", self.split, seed)
         self.items = []
         split = self.split
-        num_per_seq = self.conf[self.split + "_num_per_seq"]
+        num_per_seq = self.conf[self.split + "_num_per_scene"]
         if isinstance(num_per_seq, Iterable):
             num_pos, num_neg = num_per_seq
         else:
@@ -148,20 +164,23 @@ class _PairDataset(torch.utils.data.Dataset):
             for line in pairs_path.read_text().rstrip("\n").split("\n"):
                 im0, im1 = line.split(" ")
                 seq = im0.split("/")[0]
-                assert im1.split("/")[0] == seq
-                assert im0 in self.image_names[seq]
-                assert im1 in self.image_names[seq]
-                idx0 = np.where(self.image_names[seq] == im0)[0][0]
-                idx1 = np.where(self.image_names[seq] == im1)[0][0]
+                if seq not in self.image_names or im1.split("/")[0] != seq:
+                    continue
+                im0_name = im0.split("/")[-1]
+                im1_name = im1.split("/")[-1]
+                if im0_name not in self.image_names[seq] or im1_name not in self.image_names[seq]:
+                    continue
+                idx0 = np.where(self.image_names[seq] == im0_name)[0][0]
+                idx1 = np.where(self.image_names[seq] == im1_name)[0][0]
                 self.items.append((seq, idx0, idx1, 1.0))
         #Not tested this if statement
         elif self.conf.views == 1:
             for seq in self.seqs_maps:
                 if seq not in self.image_names:
                     continue
-                valid = (self.image_names[seq] != None) | (  # noqa: E711
-                    self.depths[seq] != None  # noqa: E711
-                )
+                valid = self.valid.get(seq, None)
+                if valid is None:
+                    continue
                 ids = np.where(valid)[0]
                 if num_pos and len(ids) > num_pos:
                     ids = np.random.RandomState(seed).choice(
@@ -171,7 +190,7 @@ class _PairDataset(torch.utils.data.Dataset):
                 self.items.extend(ids)
         else:
             for seq_map in self.seqs_maps:
-
+                mat = self.overlap_matrix[seq_map]
                 if num_pos is not None:
                     # Sample a subset of pairs, binned by overlap.
                     num_bins = self.conf.num_overlap_bins
@@ -200,44 +219,55 @@ class _PairDataset(torch.utils.data.Dataset):
                         self.overlap_matrix <= self.conf.max_overlap
                     )
                     pairs = np.stack(np.where(pairs), -1)
-
-                pairs = [(seq_map, self.image_names[i], self.image_names[j], self.overlap_matrix[i, j]) for i, j in pairs]
+                
+                image_names = self.image_names[seq_map]
+                pairs = [(seq_map, image_names[i], image_names[j], mat[i, j]) for i, j in pairs]
                 if num_neg is not None:
                     neg_pairs = np.stack(np.where(self.overlap_matrix <= 0.0), -1)
                     neg_pairs = sample_n(neg_pairs, num_neg, seed)
-                    pairs += [(seq, self.image_names[i], self.image_names[j], self.overlap_matrix[i, j]) for i, j in neg_pairs]
+                    pairs += [(seq, image_names[i], image_names[j], mat[i, j]) for i, j in neg_pairs]
                 self.items.extend(pairs)
         if self.conf.views == 2 and self.conf.sort_by_overlap:
             self.items.sort(key=lambda i: i[-1], reverse=True)
         else:
             np.random.RandomState(seed).shuffle(self.items)
 
-    def _read_view(self, seq_map, idx):
+    def _read_view(self, seq_map, image_name):
         
-        path = self.conf.data_dir / self.conf.npz_subpath / (seq_map + ".npz")
+        image_names = self.image_names[seq_map]
+        idx = np.where(image_names == image_name)[0][0]
+        path = self.root / self.conf.npz_subpath / f"{seq_map}.npz"
         data_npz = np.load(str(path), allow_pickle=True)
 
         # read pose data
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=False)
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
-        name = self.image_names[seq_map][idx]
-        sparse_depth = data_npz["depths_per_image"][idx]
-        keypoints = data_npz["keypoints_per_image"][idx]  
-        descriptors = data_npz["descriptors_per_image"][idx]  
-        scales = data_npz["scales_per_image"][idx]  
-        orientations = data_npz["orientations_per_image"][idx]  
-        keypoint_scores = np.abs(data_npz["scores_per_image"][idx]) * scales
-        point3D_ids = data_npz["point3D_ids_per_image"][idx]
-        valid_depth_mask = data_npz["valid_depth_mask_per_image"][idx]
-        valid_3D_mask = data_npz["valid_3d_mask_per_image"][idx]
+        name = str(self.image_names[seq_map][idx])
+        sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
+        keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()  
+        descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()  
+        scales = torch.from_numpy(data_npz["scales_per_image"][idx]).float()  
+        orientations = torch.from_numpy(data_npz["orientations_per_image"][idx]).float()  
+        point3D_ids = torch.from_numpy(data_npz["point3D_ids_per_image"][idx]).float()
+        valid_depth_mask = torch.from_numpy(data_npz["valid_depth_mask_per_image"][idx]).bool()
+        valid_3D_mask = torch.from_numpy(data_npz["valid_3d_mask_per_image"][idx]).bool()
+        keypoint_scores = torch.from_numpy(np.abs(data_npz["scores_per_image"][idx])).float() * scales
 
         # Assert all feature arrays have the same length in first dimension
-        assert len({sparse_depth.shape[0], keypoints.shape[0], descriptors.shape[0], 
-                    scales.shape[0], orientations.shape[0], keypoint_scores.shape[0], 
-                    point3D_ids.shape[0], valid_depth_mask.shape[0], valid_3D_mask.shape[0]}) == 1, \
-            "Feature arrays have mismatched lengths in first dimension"
+        lengths = {
+            keypoints.shape[0],
+            descriptors.shape[0],
+            sparse_depth.shape[0],
+            scales.shape[0],
+            orientations.shape[0],
+            keypoint_scores.shape[0],
+            point3D_ids.shape[0],
+            valid_depth_mask.shape[0],
+            valid_3D_mask.shape[0],
+        }
+        assert len(lengths) == 1, "Feature arrays have mismatched lengths."
 
-        pred = {
+        cache = {
             "keypoints": keypoints,
             "descriptors": descriptors,
             "sparse_depth": sparse_depth,
@@ -249,7 +279,9 @@ class _PairDataset(torch.utils.data.Dataset):
             "valid_3D_mask": valid_3D_mask,
         }
 
-        # # Not tested yet: add random rotations 
+
+
+        # # Not tested yet: add random rotations
         # do_rotate = self.conf.p_rotate > 0.0 and self.split == "train"
         # if do_rotate:
         #     p = self.conf.p_rotate
@@ -263,41 +295,47 @@ class _PairDataset(torch.utils.data.Dataset):
         
         # Truncate features based on scores
         max_num_features = self.conf.get("max_num_features", None)
+        if max_num_features is None:
+            raise ValueError("max_num_features must be not None")
         if len(keypoints) > max_num_features:
             indices = torch.topk(keypoint_scores, max_num_features).indices
-        pred = {k: v[indices] for k, v in pred.items()}
+        elif len(keypoints) == 0:
+            indices = torch.tensor([], dtype=torch.long)
+        else:
+            indices = torch.arange(len(keypoints), dtype=torch.long)
+        cache = {k: v[indices] for k, v in cache.items()}
 
         # Padding for cnsistent batching
         # Pad with zeros (creates invalid keypoints at [0, 0])
-        pred["keypoints"] = pad_to_length(
-            pred["keypoints"], max_num_features, -2, mode="zeros"
+        cache["keypoints"] = pad_to_length(
+            cache["keypoints"], max_num_features, -2, mode="zeros"
         )
-        pred["descriptors"] = pad_to_length(
-            pred["descriptors"], max_num_features, -2, mode="zeros"
+        cache["descriptors"] = pad_to_length(
+            cache["descriptors"], max_num_features, -2, mode="zeros"
         )
-        pred["scales"] = pad_to_length(
-            pred["scales"], max_num_features, -1, mode="zeros"
+        cache["scales"] = pad_to_length(
+            cache["scales"], max_num_features, -1, mode="zeros"
         )
-        pred["oris"] = pad_to_length(
-            pred["oris"], max_num_features, -1, mode="zeros"
+        cache["oris"] = pad_to_length(
+            cache["oris"], max_num_features, -1, mode="zeros"
         )
-        pred["keypoint_scores"] = pad_to_length(
-            pred["keypoint_scores"], max_num_features, -1, mode="zeros"
+        cache["keypoint_scores"] = pad_to_length(
+            cache["keypoint_scores"], max_num_features, -1, mode="zeros"
         )
         # Pad depth with -1.0 (MISSING_DEPTH_VALUE)
-        pred["depth"] = pad_to_length(
-            pred["depth"], max_num_features, -1, mode="constant", constant=-1.0
+        cache["sparse_depth"] = pad_to_length(
+            cache["sparse_depth"], max_num_features, -1, mode="minus_one"
         )
         # Pad point3D_ids with -1 (invalid ID)
-        pred["point3D_ids"] = pad_to_length(
-            pred["point3D_ids"], max_num_features, -1, mode="constant", constant=-1
+        cache["point3D_ids"] = pad_to_length(
+            cache["point3D_ids"], max_num_features, -1, mode="minus_one"
         )
         # Pad masks with False (invalid)
-        pred["valid_depth_mask"] = pad_to_length(
-            pred["valid_depth_mask"], max_num_features, -1, mode="constant", constant=False
+        cache["valid_depth_mask"] = pad_to_length(
+            cache["valid_depth_mask"], max_num_features, -1, mode=False
         )
-        pred["valid_3D_mask"] = pad_to_length(
-            pred["valid_3D_mask"], max_num_features, -1, mode="constant", constant=False
+        cache["valid_3D_mask"] = pad_to_length(
+            cache["valid_3D_mask"], max_num_features, -1, mode=False
         )
         
 
@@ -305,9 +343,9 @@ class _PairDataset(torch.utils.data.Dataset):
             "name": name,
             "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
-            "camera": Camera.from_calibration_matrix(K).float(),
-            **pred,
+            "camera": Camera.from_calibration_matrix(K).float()
         }
+        data = {"cache": cache, **data}
         return data
 
     def __getitem__(self, idx):
@@ -320,11 +358,11 @@ class _PairDataset(torch.utils.data.Dataset):
     def getitem(self, idx):
         if self.conf.views == 2:
             if isinstance(idx, list):
-                seq_map, idx0, idx1, overlap = idx
+                seq_map, img_name0, img_name1, overlap = idx
             else:
-                seq_map, idx0, idx1, overlap = self.items[idx]
-            data0 = self._read_view(seq_map, idx0)
-            data1 = self._read_view(seq_map, idx1)
+                seq_map, img_name0, img_name1, overlap = self.items[idx]
+            data0 = self._read_view(seq_map, img_name0)
+            data1 = self._read_view(seq_map, img_name1)
             data = {
                 "view0": data0,
                 "view1": data1,
@@ -363,7 +401,7 @@ def visualize(args):
     logger.info("The dataset has elements.", len(loader))
 
     with fork_rng(seed=dataset.conf.seed):
-        images, depths = [], []
+        images = []
         for _, data in zip(range(args.num_items), loader):
             images.append(
                 [
@@ -371,13 +409,8 @@ def visualize(args):
                     for i in range(dataset.conf.views)
                 ]
             )
-            depths.append(
-                [data[f"view{i}"]["depth"][0] for i in range(dataset.conf.views)]
-            )
 
     axes = plot_image_grid(images, dpi=args.dpi)
-    for i in range(len(images)):
-        plot_heatmaps(depths[i], axes=axes[i])
     plt.show()
 
 
