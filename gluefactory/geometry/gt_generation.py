@@ -10,6 +10,150 @@ IGNORE_FEATURE = -2
 UNMATCHED_FEATURE = -1
 
 
+# @torch.no_grad()
+# def gt_matches_from_pose_sparse_map(
+#     kp0, kp1, data, epi_th
+# ):
+#     if kp0.shape[1] == 0 or kp1.shape[1] == 0:
+#         b_size, n_kp0 = kp0.shape[:2]
+#         n_kp1 = kp1.shape[1]
+#         assignment = torch.zeros(
+#             b_size, n_kp0, n_kp1, dtype=torch.bool, device=kp0.device
+#         )
+#         m0 = -torch.ones_like(kp0[:, :, 0]).long()
+#         m1 = -torch.ones_like(kp1[:, :, 0]).long()
+#         return assignment, m0, m1
+#     camera0, camera1 = data["view0"]["camera"], data["view1"]["camera"]
+#     T_0to1, T_1to0 = data["T_0to1"], data.get("T_1to0", data["T_0to1"].inv())
+
+#     # Build set of correspondences: 
+#     # build a matrix of size [... x M x N] where 1 if kp0 has a 3D point
+#     positive = 
+
+
+#     # Redisign logic ot 
+#     # pack the indices of positive matches
+#     # if -1: unmatched point
+#     # if -2: ignore point
+#     unmatched = positive.new_tensor(UNMATCHED_FEATURE)
+#     ignore = positive.new_tensor(IGNORE_FEATURE)
+#     m0 = torch.where(positive.any(-1), idx0, ignore)
+#     m1 = torch.where(positive.any(-2), idx1, ignore)
+
+
+#     F = (
+#         camera1.calibration_matrix().inverse().transpose(-1, -2)
+#         @ T_to_E(T_0to1)
+#         @ camera0.calibration_matrix().inverse()
+#     )
+#     epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
+#     inf = positive.new_tensor(float("inf"))
+
+#     # Add some more unmatched points using epipolar geometry
+#     if epi_th is not None:
+#         mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+#         epi_dist = torch.where(mask_ignore, epi_dist, inf)
+#         exclude0 = epi_dist.min(-1).values > epi_th
+#         exclude1 = epi_dist.min(-2).values > epi_th
+#         m0 = torch.where(exclude0, ignore.new_tensor(-1), m0)
+#         m1 = torch.where(exclude1, ignore.new_tensor(-1), m1)
+
+#     return {
+#         "assignment": positive,
+#         "matches0": m0,
+#         "matches1": m1,
+#     }
+
+@torch.no_grad()
+def gt_matches_from_pose_sparse_depth(
+    kp0, kp1, data, pos_th=3, neg_th=5, epi_th=None, cc_th=None, **kw
+):
+    if kp0.shape[1] == 0 or kp1.shape[1] == 0:
+        b_size, n_kp0 = kp0.shape[:2]
+        n_kp1 = kp1.shape[1]
+        assignment = torch.zeros(
+            b_size, n_kp0, n_kp1, dtype=torch.bool, device=kp0.device
+        )
+        m0 = -torch.ones_like(kp0[:, :, 0]).long()
+        m1 = -torch.ones_like(kp1[:, :, 0]).long()
+        return assignment, m0, m1
+    camera0, camera1 = data["view0"]["camera"], data["view1"]["camera"]
+    T_0to1, T_1to0 = data["T_0to1"], data.get("T_1to0", data["T_0to1"].inv())
+
+    depth0 = None       # No dense depth
+    depth1 = None
+    d0, valid0 = kw["sparse_depth0"], kw["valid_3D_mask0"]          # d0 and d1 are still for CudaSIFT
+    d1, valid1 = kw["sparse_depth1"], kw["valid_3D_mask1"]
+
+    # Two sources of error: noisy depth, no kannala-brandt projection model 
+    kp0_1, visible0 = project(
+        kp0, d0, depth1, camera0, camera1, T_0to1, valid0, ccth=cc_th
+    )
+    kp1_0, visible1 = project(
+        kp1, d1, depth0, camera1, camera0, T_1to0, valid1, ccth=cc_th
+    )
+    mask_visible = visible0.unsqueeze(-1) & visible1.unsqueeze(-2)
+
+    # build a distance matrix of size [... x M x N]
+    dist0 = torch.sum((kp0_1.unsqueeze(-2) - kp1.unsqueeze(-3)) ** 2, -1)
+    dist1 = torch.sum((kp0.unsqueeze(-2) - kp1_0.unsqueeze(-3)) ** 2, -1)
+    dist = torch.max(dist0, dist1)
+    inf = dist.new_tensor(float("inf"))
+    dist = torch.where(mask_visible, dist, inf)
+
+    min0 = dist.min(-1).indices
+    min1 = dist.min(-2).indices
+
+    ismin0 = torch.zeros(dist.shape, dtype=torch.bool, device=dist.device)
+    ismin1 = ismin0.clone()
+    ismin0.scatter_(-1, min0.unsqueeze(-1), value=1)
+    ismin1.scatter_(-2, min1.unsqueeze(-2), value=1)
+    positive = ismin0 & ismin1 & (dist < pos_th**2)
+
+    negative0 = (dist0.min(-1).values > neg_th**2) & valid0
+    negative1 = (dist1.min(-2).values > neg_th**2) & valid1
+
+    # pack the indices of positive matches
+    # if -1: unmatched point
+    # if -2: ignore point
+    unmatched = min0.new_tensor(UNMATCHED_FEATURE)
+    ignore = min0.new_tensor(IGNORE_FEATURE)
+    m0 = torch.where(positive.any(-1), min0, ignore)
+    m1 = torch.where(positive.any(-2), min1, ignore)
+    m0 = torch.where(negative0, unmatched, m0)
+    m1 = torch.where(negative1, unmatched, m1)
+
+    F = (
+        camera1.calibration_matrix().inverse().transpose(-1, -2)
+        @ T_to_E(T_0to1)
+        @ camera0.calibration_matrix().inverse()
+    )
+    epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
+
+    # Add some more unmatched points using epipolar geometry
+    if epi_th is not None:
+        mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+        epi_dist = torch.where(mask_ignore, epi_dist, inf)
+        exclude0 = epi_dist.min(-1).values > neg_th
+        exclude1 = epi_dist.min(-2).values > neg_th
+        m0 = torch.where((~valid0) & exclude0, ignore.new_tensor(-1), m0)
+        m1 = torch.where((~valid1) & exclude1, ignore.new_tensor(-1), m1)
+
+    return {
+        "assignment": positive,
+        "reward": (dist < pos_th**2).float() - (epi_dist > neg_th).float(),
+        "matches0": m0,
+        "matches1": m1,
+        "matching_scores0": (m0 > -1).float(),
+        "matching_scores1": (m1 > -1).float(),
+        "depth_keypoints0": d0,
+        "depth_keypoints1": d1,
+        "proj_0to1": kp0_1,
+        "proj_1to0": kp1_0,
+        "visible0": visible0,
+        "visible1": visible1,
+    }
+
 @torch.no_grad()
 def gt_matches_from_pose_depth(
     kp0, kp1, data, pos_th=3, neg_th=5, epi_th=None, cc_th=None, **kw

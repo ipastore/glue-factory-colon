@@ -57,7 +57,9 @@ class Endomapper(BaseDataset):
         "reseed": False,
         "seed": 0,
         # CudaSift features
-        "max_num_features": 2048
+        "max_num_features": 2048,
+        "min_images_per_map": 10,
+        "min_3D_points_per_map": 50
     }
 
     def _init(self, conf):
@@ -121,8 +123,12 @@ class _PairDataset(torch.utils.data.Dataset):
                 )
                 continue
 
+            len_images = data_npz["image_names"].shape[0]
+            len_3D_points = data_npz["point3D_ids"].shape[0]
+            if len_images < self.conf.min_images_per_map or len_3D_points < self.conf.min_3D_points_per_map:
+                continue
+
             self.image_names[seq_map] = data_npz["image_names"]
-            #TODO filter with number of image_names to skip small maps
             self.poses[seq_map] = data_npz["poses"]
             self.intrinsics[seq_map] = data_npz["intrinsics"]
 
@@ -279,19 +285,6 @@ class _PairDataset(torch.utils.data.Dataset):
             "valid_3D_mask": valid_3D_mask,
         }
 
-
-
-        # # Not tested yet: add random rotations
-        # do_rotate = self.conf.p_rotate > 0.0 and self.split == "train"
-        # if do_rotate:
-        #     p = self.conf.p_rotate
-        #     k = 0
-        #     if np.random.rand() < p:
-        #         k = np.random.choice(2, 1, replace=False)[0] * 2 - 1
-        #         img = torch.rot90(img, k=-k, dims=[1, 2])
-        #         depth = torch.rot90(depth, k=-k, dims=[1, 2]).clone()
-        #         K = rotate_intrinsics(K, img.shape, k + 2)
-        #         T = rotate_pose_inplane(T, k + 2)
         
         # Truncate features based on scores
         max_num_features = self.conf.get("max_num_features", None)
