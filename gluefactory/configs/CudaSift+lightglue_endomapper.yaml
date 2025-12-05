@@ -10,8 +10,8 @@ data:
     batch_size: 2   #32
     num_workers: 8  #14
     max_num_features: 2048
-    "min_images_per_map": 0
-    "min_3D_points_per_map": 0
+    min_images_per_map: 0
+    min_3D_points_per_map: 0
 
 
 model:

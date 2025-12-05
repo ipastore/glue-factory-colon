@@ -111,6 +111,11 @@ def process_sequence(
 
     image_ids = sorted(images.keys())
     image_names = [images[i].name for i in image_ids]
+    image_camera_ids = [images[i].camera_id for i in image_ids]
+    image_sizes = np.array(
+        [(cameras[cid].width, cameras[cid].height) for cid in image_camera_ids],
+        dtype=np.int32,
+    )
     camera_model = cameras[images[image_ids[0]].camera_id].model
 
     intrinsics = extract_intrinsics(cameras, images)
@@ -185,6 +190,8 @@ def process_sequence(
     np.savez(
         out_path,
         image_names=np.array(image_names, dtype=object),
+        image_sizes=image_sizes,
+        camera_ids=np.array(image_camera_ids, dtype=np.int64),
         poses=poses,
         intrinsics=intrinsics,
         distortion_coeffs=np.stack(distortion_coeffs, axis=0),

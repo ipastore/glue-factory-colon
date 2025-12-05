@@ -95,6 +95,8 @@ class _PairDataset(torch.utils.data.Dataset):
         self.seq: Dict[str, str] = {}
         self.map_id: Dict[str, str] = {}
         self.image_names: Dict[str, np.ndarray] = {}
+        self.image_sizes: Dict[str, np.ndarray] = {}
+        self.camera_ids: Dict[str, np.ndarray] = {}
         self.poses: Dict[str, np.ndarray] = {}
         self.intrinsics: Dict[str, np.ndarray] = {}
         self.valid: Dict[str, np.ndarray] = {}
@@ -129,6 +131,8 @@ class _PairDataset(torch.utils.data.Dataset):
                 continue
 
             self.image_names[seq_map] = data_npz["image_names"]
+            self.image_sizes[seq_map] = data_npz["image_sizes"]
+            self.camera_ids[seq_map] = data_npz["camera_ids"]
             self.poses[seq_map] = data_npz["poses"]
             self.intrinsics[seq_map] = data_npz["intrinsics"]
 
@@ -221,8 +225,8 @@ class _PairDataset(torch.utils.data.Dataset):
                             pairs.append(sample_n(pairs_bin, num_per_bin_2, seed))
                     pairs = np.concatenate(pairs, 0)
                 else:
-                    pairs = (self.overlap_matrix > self.conf.min_overlap) & (
-                        self.overlap_matrix <= self.conf.max_overlap
+                    pairs = (mat > self.conf.min_overlap) & (
+                        mat <= self.conf.max_overlap
                     )
                     pairs = np.stack(np.where(pairs), -1)
                 
@@ -249,6 +253,7 @@ class _PairDataset(torch.utils.data.Dataset):
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=False)
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         name = str(self.image_names[seq_map][idx])
+        image_size = torch.tensor(self.image_sizes[seq_map][idx]).float()
         sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
         keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()  
         descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()  
@@ -336,7 +341,8 @@ class _PairDataset(torch.utils.data.Dataset):
             "name": name,
             "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
-            "camera": Camera.from_calibration_matrix(K).float()
+            "camera": Camera.from_calibration_matrix(K).float(),
+            "image_size": image_size, #WxH
         }
         data = {"cache": cache, **data}
         return data
@@ -363,12 +369,11 @@ class _PairDataset(torch.utils.data.Dataset):
             data["T_0to1"] = data1["T_w2cam"] @ data0["T_w2cam"].inv()
             data["T_1to0"] = data0["T_w2cam"] @ data1["T_w2cam"].inv()
             data["overlap_0to1"] = overlap
-            data["name"] = f"{seq_map}/{data0['name']}_{data1['name']}"
+            data["names"] = f"{seq_map}/{data0['name']}_{data1['name']}"
         else:
             assert self.conf.views == 1
             seq_map, idx0 = self.items[idx]
             data = self._read_view(seq_map, idx0)
-        data["seq_map"] = seq_map
         data["idx"] = idx
         return data
 
