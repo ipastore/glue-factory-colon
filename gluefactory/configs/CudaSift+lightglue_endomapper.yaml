@@ -20,7 +20,7 @@ model:
         name: null
     matcher:
         name: matchers.lightglue
-        filter_threshold: 0.1
+        filter_threshold: 0.01
         flash: false
         checkpointed: true
         add_scale_ori: true

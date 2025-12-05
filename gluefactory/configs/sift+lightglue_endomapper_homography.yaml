@@ -37,6 +37,7 @@ model:
         flash: false
         checkpointed: true
         input_dim: 128
+        add_scale_ori: true
 train:
     seed: 0
     epochs: 40

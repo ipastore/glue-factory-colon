@@ -23,7 +23,7 @@ from . import __module_name__, logger, settings
 from .datasets import get_dataset
 from .eval import run_benchmark
 from .models import get_model
-from .utils.experiments import get_best_checkpoint, get_last_checkpoint, save_experiment
+from .utils.experiments import get_best_checkpoint, get_last_checkpoint, save_experiment, verify_checkpoint_loading
 from .utils.stdout_capturing import capture_outputs
 from .utils.tensor import batch_to_device
 from .utils.tools import (
@@ -260,6 +260,7 @@ def training(rank, conf, output_dir, args):
                 OmegaConf.create(init_cp["conf"]).model, conf.model
             )
             print(conf.model)
+
         else:
             init_cp = None
 
@@ -334,6 +335,10 @@ def training(rank, conf, output_dir, args):
     loss_fn = model.loss
     if init_cp is not None:
         model.load_state_dict(init_cp["model"], strict=False)
+
+    # Verify checkpoint loading
+    verify_checkpoint_loading(init_cp, model, logger, module_prefix="matcher")
+    
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])

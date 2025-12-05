@@ -18,6 +18,62 @@ from ..models import get_model
 
 logger = logging.getLogger(__name__)
 
+def verify_checkpoint_loading(checkpoint, model, logger, module_prefix="matcher"):
+    """Verify that checkpoint weights are loaded correctly into the model.
+    
+    Args:
+        checkpoint: Dict containing the checkpoint with 'model' key
+        model: The PyTorch model
+        logger: Logger instance for output
+        module_prefix: Prefix to check for specific module weights (default: "matcher")
+    """
+    state_dict = checkpoint["model"]
+    loaded_params = set(state_dict.keys())
+    model_params = set(map(lambda n: n[0], model.named_parameters()))
+
+    # Check overlap
+    matched = loaded_params & model_params
+    logger.info(f"✓ Successfully loaded {len(matched)}/{len(model_params)} parameters")
+
+    # Check missing
+    missing = model_params - loaded_params
+    if missing:
+        logger.warning(
+            f"⚠️  {len(missing)} parameters not in checkpoint (will be random):"
+        )
+        logger.warning(f"   Example: {list(missing)[:3]}")
+
+    # Check extra (in checkpoint but not in model)
+    extra = loaded_params - model_params
+    if extra:
+        logger.info(
+            f"ℹ️  {len(extra)} extra parameters in checkpoint (ignored):"
+        )
+        logger.info(f"   Example: {list(extra)[:3]}")
+
+    # Verify non-zero weights for specified module
+    module_params = {
+        k: v for k, v in state_dict.items() if k.startswith(f"{module_prefix}.")
+    }
+    if module_params:
+        avg_abs = (
+            sum(v.abs().mean().item() for v in module_params.values())
+            / len(module_params)
+        )
+        logger.info(f"{module_prefix.capitalize()} weights average magnitude: {avg_abs:.6f}")
+        if avg_abs < 1e-6:
+            logger.error(f"❌ {module_prefix.capitalize()} weights appear to be all zeros!")
+    else:
+        logger.error(f"❌ No '{module_prefix}.' prefixed weights found in checkpoint!")
+    
+    return {
+        "matched": len(matched),
+        "total": len(model_params),
+        "missing": len(missing),
+        "extra": len(extra),
+        "avg_magnitude": avg_abs if module_params else 0.0,
+    }
+
 
 def list_checkpoints(dir_):
     """List all valid checkpoints in a given directory."""
