@@ -10,59 +10,129 @@ IGNORE_FEATURE = -2
 UNMATCHED_FEATURE = -1
 
 
-# @torch.no_grad()
-# def gt_matches_from_pose_sparse_map(
-#     kp0, kp1, data, epi_th
-# ):
-#     if kp0.shape[1] == 0 or kp1.shape[1] == 0:
-#         b_size, n_kp0 = kp0.shape[:2]
-#         n_kp1 = kp1.shape[1]
-#         assignment = torch.zeros(
-#             b_size, n_kp0, n_kp1, dtype=torch.bool, device=kp0.device
-#         )
-#         m0 = -torch.ones_like(kp0[:, :, 0]).long()
-#         m1 = -torch.ones_like(kp1[:, :, 0]).long()
-#         return assignment, m0, m1
-#     camera0, camera1 = data["view0"]["camera"], data["view1"]["camera"]
-#     T_0to1, T_1to0 = data["T_0to1"], data.get("T_1to0", data["T_0to1"].inv())
+@torch.no_grad()
+def _log_error_distribution(
+    dist,
+    mask,
+    label="dist",
+    squared=True,
+    overlap=None,
+    thresholds=(2, 3, 4, 5, 6),
+):
+    if mask is None:
+        raise ValueError("mask must be provided for logging.")
+    if overlap is None:
+        raise ValueError("overlap must be provided for logging.")
+    mask = mask.to(torch.bool)
 
-#     # Build set of correspondences: 
-#     # build a matrix of size [... x M x N] where 1 if kp0 has a 3D point
-#     positive = 
+    dist_masked = dist.masked_fill(~mask, float("inf"))
+    values = [
+        ("kp0->1", dist_masked.min(-1).values),  # best kp1 for each kp0
+        ("kp1->0", dist_masked.min(-2).values),  # best kp0 for each kp1
+    ]
+
+    overlap_vals = overlap
+    if not isinstance(overlap_vals, torch.Tensor):
+        overlap_vals = torch.tensor(overlap_vals, device=dist.device)
+    if overlap_vals.numel() == 1:
+        overlap_vals = overlap_vals.expand(dist.shape[0])
+    overlap_vals = overlap_vals.detach().cpu()
+
+    thr = torch.tensor(thresholds, device=dist.device, dtype=dist.dtype)
+    for b in range(dist.shape[0]):
+        if overlap_vals is not None:
+            print(f"[{label}] batch {b} overlap_0to1={overlap_vals[b].item():.4f}")
+        for name, vals in values:
+            err = vals[b][vals[b].isfinite()]
+            if squared:
+                err = err.sqrt()
+
+            if err.numel():
+                counts_lt = (err[:, None] < thr).sum(dim=0).cpu()
+                counts_gt = (err[:, None] > thr).sum(dim=0).cpu()
+                print(
+                    f"[{label}] batch {b} {name} total={err.numel()}\n"
+                    f"counts_lt_thresholds(px) {thresholds}: {counts_lt.tolist()}\n"
+                    f"counts_gt_thresholds(px) {thresholds}: {counts_gt.tolist()}",
+                )
 
 
-#     # Redisign logic ot 
-#     # pack the indices of positive matches
-#     # if -1: unmatched point
-#     # if -2: ignore point
-#     unmatched = positive.new_tensor(UNMATCHED_FEATURE)
-#     ignore = positive.new_tensor(IGNORE_FEATURE)
-#     m0 = torch.where(positive.any(-1), idx0, ignore)
-#     m1 = torch.where(positive.any(-2), idx1, ignore)
+@torch.no_grad()
+def gt_matches_from_pose_sparse_map(
+    kp0, kp1, data, pos_th=3, neg_th=5, epi_th=None, cc_th=None, **kw
+):
+    if kp0.shape[1] == 0 or kp1.shape[1] == 0:
+        b_size, n_kp0 = kp0.shape[:2]
+        n_kp1 = kp1.shape[1]
+        assignment = torch.zeros(
+            b_size, n_kp0, n_kp1, dtype=torch.bool, device=kp0.device
+        )
+        m0 = -torch.ones_like(kp0[:, :, 0]).long()
+        m1 = -torch.ones_like(kp1[:, :, 0]).long()
+        return assignment, m0, m1
+    _ = pos_th  # kept for API symmetry
+    _ = cc_th
+    camera0, camera1 = data["view0"]["camera"], data["view1"]["camera"]
+    T_0to1 = data["T_0to1"]
 
+    ids0, valid_ids0 = kw["point3D_ids0"].long(), kw["valid_3D_mask0"]
+    ids1, valid_ids1 = kw["point3D_ids1"].long(), kw["valid_3D_mask1"]
 
-#     F = (
-#         camera1.calibration_matrix().inverse().transpose(-1, -2)
-#         @ T_to_E(T_0to1)
-#         @ camera0.calibration_matrix().inverse()
-#     )
-#     epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
-#     inf = positive.new_tensor(float("inf"))
+    positive = (
+        (ids0.unsqueeze(-1) == ids1.unsqueeze(-2))
+        & valid_ids0.unsqueeze(-1)
+        & valid_ids1.unsqueeze(-2)
+    )
 
-#     # Add some more unmatched points using epipolar geometry
-#     if epi_th is not None:
-#         mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
-#         epi_dist = torch.where(mask_ignore, epi_dist, inf)
-#         exclude0 = epi_dist.min(-1).values > epi_th
-#         exclude1 = epi_dist.min(-2).values > epi_th
-#         m0 = torch.where(exclude0, ignore.new_tensor(-1), m0)
-#         m1 = torch.where(exclude1, ignore.new_tensor(-1), m1)
+    unmatched = ids0.new_tensor(UNMATCHED_FEATURE)
+    ignore = ids0.new_tensor(IGNORE_FEATURE)
 
-#     return {
-#         "assignment": positive,
-#         "matches0": m0,
-#         "matches1": m1,
-#     }
+    idx0 = positive.float().argmax(-1)
+    idx1 = positive.float().argmax(-2)
+    m0 = torch.where(positive.any(-1), idx0, ignore)
+    m1 = torch.where(positive.any(-2), idx1, ignore)
+
+    F = (
+        camera1.calibration_matrix().inverse().transpose(-1, -2)
+        @ T_to_E(T_0to1)
+        @ camera0.calibration_matrix().inverse()
+    )
+    epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
+    reward = positive.float() - (
+        epi_dist > (epi_th if epi_th is not None else neg_th)
+    ).float()
+    inf = epi_dist.new_tensor(float("inf"))
+
+    
+    ########## DEBUG ###########
+    mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+    _log_error_distribution(
+        epi_dist,
+        mask_ignore,
+        label="epi",
+        squared=False,
+        overlap=data["overlap_0to1"],
+    )
+    ########## DEBUG ###########
+
+    # Add hard negatives using epipolar geometry where no 3D match exists
+    if epi_th is not None:
+        mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+        epi_dist = torch.where(mask_ignore, epi_dist, inf)
+        exclude0 = epi_dist.min(-1).values > epi_th
+        exclude1 = epi_dist.min(-2).values > epi_th
+        m0 = torch.where(exclude0 & valid_ids0 & (m0 == ignore), unmatched, m0)
+        m1 = torch.where(exclude1 & valid_ids1 & (m1 == ignore), unmatched, m1)
+
+    return {
+        "assignment": positive,
+        "reward": reward,
+        "matches0": m0,
+        "matches1": m1,
+        "matching_scores0": (m0 > -1).float(),
+        "matching_scores1": (m1 > -1).float(),
+    }
+
 
 @torch.no_grad()
 def gt_matches_from_pose_sparse_depth(
@@ -101,6 +171,17 @@ def gt_matches_from_pose_sparse_depth(
     inf = dist.new_tensor(float("inf"))
     dist = torch.where(mask_visible, dist, inf)
 
+    ########## DEBUG ###########
+    _log_error_distribution(
+        dist,
+        mask_visible,
+        label="reproj",
+        squared=True,
+        overlap=data["overlap_0to1"],
+    )
+    ########## DEBUG ###########
+
+
     min0 = dist.min(-1).indices
     min1 = dist.min(-2).indices
 
@@ -130,18 +211,30 @@ def gt_matches_from_pose_sparse_depth(
     )
     epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
 
+    ########## DEBUG ###########
+    mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+    _log_error_distribution(
+        epi_dist,
+        mask_ignore,
+        label="epi",
+        squared=False,
+        overlap=data["overlap_0to1"],
+    )
+    ########## DEBUG ###########
+    epi_th_val = epi_th if epi_th is not None else neg_th
+
     # Add some more unmatched points using epipolar geometry
     if epi_th is not None:
         mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
         epi_dist = torch.where(mask_ignore, epi_dist, inf)
-        exclude0 = epi_dist.min(-1).values > neg_th
-        exclude1 = epi_dist.min(-2).values > neg_th
+        exclude0 = epi_dist.min(-1).values > epi_th
+        exclude1 = epi_dist.min(-2).values > epi_th
         m0 = torch.where((~valid0) & exclude0, ignore.new_tensor(-1), m0)
         m1 = torch.where((~valid1) & exclude1, ignore.new_tensor(-1), m1)
 
     return {
         "assignment": positive,
-        "reward": (dist < pos_th**2).float() - (epi_dist > neg_th).float(),
+        "reward": (dist < pos_th**2).float() - (epi_dist > epi_th_val).float(),
         "matches0": m0,
         "matches1": m1,
         "matching_scores0": (m0 > -1).float(),
@@ -196,6 +289,16 @@ def gt_matches_from_pose_depth(
     inf = dist.new_tensor(float("inf"))
     dist = torch.where(mask_visible, dist, inf)
 
+    ########## DEBUG ###########
+    _log_error_distribution(
+        dist,
+        mask_visible,
+        label="reproj",
+        squared=True,
+        overlap=data["overlap_0to1"],
+    )
+    ########## DEBUG ###########
+
     min0 = dist.min(-1).indices
     min1 = dist.min(-2).indices
 
@@ -224,19 +327,31 @@ def gt_matches_from_pose_depth(
         @ camera0.calibration_matrix().inverse()
     )
     epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
+    epi_th_val = epi_th if epi_th is not None else neg_th
+
+    ########## DEBUG ###########
+    mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+    _log_error_distribution(
+        epi_dist,
+        mask_ignore,
+        label="epi",
+        squared=False,
+        overlap=data["overlap_0to1"],
+    )
+    ########## DEBUG ###########
 
     # Add some more unmatched points using epipolar geometry
     if epi_th is not None:
         mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
         epi_dist = torch.where(mask_ignore, epi_dist, inf)
-        exclude0 = epi_dist.min(-1).values > neg_th
-        exclude1 = epi_dist.min(-2).values > neg_th
+        exclude0 = epi_dist.min(-1).values > epi_th
+        exclude1 = epi_dist.min(-2).values > epi_th
         m0 = torch.where((~valid0) & exclude0, ignore.new_tensor(-1), m0)
         m1 = torch.where((~valid1) & exclude1, ignore.new_tensor(-1), m1)
 
     return {
         "assignment": positive,
-        "reward": (dist < pos_th**2).float() - (epi_dist > neg_th).float(),
+        "reward": (dist < pos_th**2).float() - (epi_dist > epi_th_val).float(),
         "matches0": m0,
         "matches1": m1,
         "matching_scores0": (m0 > -1).float(),

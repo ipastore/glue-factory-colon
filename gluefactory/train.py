@@ -335,9 +335,9 @@ def training(rank, conf, output_dir, args):
     loss_fn = model.loss
     if init_cp is not None:
         model.load_state_dict(init_cp["model"], strict=False)
+        # Verify checkpoint loading
+        verify_checkpoint_loading(init_cp, model, logger, module_prefix="matcher")
 
-    # Verify checkpoint loading
-    verify_checkpoint_loading(init_cp, model, logger, module_prefix="matcher")
     
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)

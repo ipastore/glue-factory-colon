@@ -307,7 +307,11 @@ class _PairDataset(torch.utils.data.Dataset):
         # Padding for cnsistent batching
         # Pad with zeros (creates invalid keypoints at [0, 0])
         cache["keypoints"] = pad_to_length(
-            cache["keypoints"], max_num_features, -2, mode="zeros"
+            cache["keypoints"], 
+            max_num_features, 
+            -2,
+            mode="random_c",
+            bounds=(0, min(image_size))
         )
         cache["descriptors"] = pad_to_length(
             cache["descriptors"], max_num_features, -2, mode="zeros"
