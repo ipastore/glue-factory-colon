@@ -720,6 +720,8 @@ if __name__ == "__main__":
     elif args.restore:
         restore_conf = OmegaConf.load(output_dir / "config.yaml")
         conf = OmegaConf.merge(restore_conf, conf)
+    conf = OmegaConf.merge(conf, {"train": {"experiment_name": args.experiment}})
+
     if not args.restore:
         if conf.train.seed is None:
             conf.train.seed = torch.initial_seed() & (2**32 - 1)

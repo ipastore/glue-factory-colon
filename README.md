@@ -24,6 +24,27 @@ python3 -m pip install -e .[extra]
 
 All models and datasets in gluefactory have auto-downloaders, so you can get started right away!
 
+## Endomapper dataset (fork-specific)
+This fork supports training on the Endomapper COLMAP exports.
+
+### Extract keyframes only
+To extract just the keyframe PNGs (`Keyframe_<id>.png`) for a sequence video into `<MAPS_ROOT>/<map_id>/keyframes/`, run:
+```bash
+python3 tools/extract_frames_depths_matches_endomapper_seq.py \
+    --maps_root <SEQ_ROOT>/output/3D_maps/ \
+    --keyframes_in_map_dir \
+    --video <VIDEO_PATH>
+```
+
+### Preprocess for training
+After exporting the EndoCartoScope-SLAM maps, generate `.npz` caches for downstream training with:
+```bash
+python3 tools/preprocess_endomapper.py \
+    --root <ENDOMAPPER_ROOT> \
+    --output-dir <OUTPUT_DIR>
+```
+Use `--sequences` or `--map-ids` to limit processing if needed.
+
 ## License
 The code and trained models in Glue Factory are released with an Apache-2.0 license. This includes LightGlue and an [open version of SuperPoint](https://github.com/rpautrat/SuperPoint). Third-party models that are not compatible with this license, such as SuperPoint (original) and SuperGlue, are provided in `gluefactory_nonfree`, where each model might follow its own, restrictive license.
 

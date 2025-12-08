@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 
 from ..geometry.wrappers import Camera, Pose
 from ..settings import DATA_PATH
+from ..utils.image import load_image
 from ..utils.tools import fork_rng
 from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
@@ -56,6 +57,8 @@ class Endomapper(BaseDataset):
         "p_rotate": 0.0,  # probability to rotate image by +/- 90°, Not used, nor implemented
         "reseed": False,
         "seed": 0,
+        "read_image": False,
+        "grayscale": False,
         # CudaSift features
         "max_num_features": 2048,
         "min_images_per_map": 10,
@@ -254,6 +257,19 @@ class _PairDataset(torch.utils.data.Dataset):
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         name = str(self.image_names[seq_map][idx])
         image_size = torch.tensor(self.image_sizes[seq_map][idx]).float()
+        image = None
+        if self.conf.read_image:
+            name = f"Keyframe_{name}.png"
+            image_path = (
+                self.root
+                / self.seq[seq_map]
+                / "output"
+                / "3D_maps"
+                / self.map_id[seq_map]
+                / "keyframes"
+                / name
+            )
+            image = load_image(image_path, grayscale=self.conf.grayscale)
         sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
         keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()  
         descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()  
@@ -349,6 +365,8 @@ class _PairDataset(torch.utils.data.Dataset):
             "camera": Camera.from_calibration_matrix(K).float(),
             "image_size": image_size, #WxH
         }
+        if image is not None:
+            data["image"] = image
         data = {"cache": cache, **data}
         return data
 

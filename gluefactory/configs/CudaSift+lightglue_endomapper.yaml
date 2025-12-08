@@ -9,9 +9,11 @@ data:
     num_overlap_bins: 3
     batch_size: 2   #32
     num_workers: 8  #14
-    max_num_features: 2048
+    max_num_features: 1024
     min_images_per_map: 0
     min_3D_points_per_map: 0
+    read_image: true
+    grayscale: false
 
 
 model:
@@ -27,10 +29,11 @@ model:
         input_dim: 128
     ground_truth:
         name:  matchers.sparse_depth_matcher
-        use_sparse_depth: true
+        use_sparse_depth: false
         th_positive: 3
         th_negative: 5
         th_epi: 5
+        save_fig_when_debug: true
     allow_no_extract: True
 train:
     seed: 0
