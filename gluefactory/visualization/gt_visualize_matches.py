@@ -16,7 +16,7 @@ def make_gt_debug_figures(pred_, data_, n_pairs=2):
     assert view0["image"].shape[0] >= n_pairs
 
     kp0, kp1 = pred["keypoints0"], pred["keypoints1"]
-    m0 = pred["matches0"]
+    m0 = data["matches0"]
     gtm0 = pred.get("gt_matches0", m0)
 
     figs = []
@@ -39,6 +39,9 @@ def make_gt_debug_figures(pred_, data_, n_pairs=2):
         fig.set_size_inches(figsize[0], figsize[1])
 
         correct = gtm0[i][valid] == m0[i][valid]
+        num_invalid = int((~correct).sum())
+        kpts_pair = [kp0[i], kp1[i]]
+        plot_keypoints(kpts_pair, axes=axes[0], colors="royalblue")
         if kpm0.shape[0]:
             plot_matches(
                 kpm0,
@@ -50,27 +53,10 @@ def make_gt_debug_figures(pred_, data_, n_pairs=2):
                 ps=0.0,
             )
 
-        # Plot invalid (gt == -1) keypoints in red on the first image
-        neg_mask = gtm0[i] == -1
-        if neg_mask.any():
-            neg0 = kp0[i][neg_mask].numpy()
-            plot_keypoints([neg0, torch.zeros((0, 2))], axes=axes[0], colors=["red", "red"], ps=5)
-
-        if "heatmap0" in pred.keys():
-            plot_heatmaps(
-                [
-                    torch.sigmoid(pred["heatmap0"][i, 0]),
-                    torch.sigmoid(pred["heatmap1"][i, 0]),
-                ],
-                axes=axes[0],
-                a=1.0,
-            )
-        elif "depth" in view0.keys() and view0["depth"] is not None:
-            plot_heatmaps([view0["depth"][i], view1["depth"][i]], axes=axes[0], a=1.0)
-
         num_kp = (kp0[i].shape[0], kp1[i].shape[0])
         num_matches = kpm0.shape[0]
-        num_invalid = int((gtm0[i] == -1).sum().item()) if gtm0 is not None else 0
+        num_predictions =  int((m0[i]>-1).sum())
+        num_matches_gt = int((gtm0[i]>-1).sum()) 
         overlap = data.get("overlap_0to1", None)
         if overlap is not None:
             ov = overlap[i] if hasattr(overlap, "__len__") else overlap
@@ -80,8 +66,10 @@ def make_gt_debug_figures(pred_, data_, n_pairs=2):
         stats_parts = [
             f"overlap: {overlap_val:.3f}" if overlap_val is not None else "overlap: n/a",
             f"kp: {num_kp[0]}/{num_kp[1]}",
-            f"matches: {num_matches}",
+            f"valid: {num_matches}",
             f"invalid: {num_invalid}",
+            f"total_predictions: {num_predictions}",
+            f"total_gt_matches: {num_matches_gt}"
         ]
         fig.suptitle(" | ".join(stats_parts), fontsize=6, y=0.99, va="bottom")
         figs.append(fig)
