@@ -158,23 +158,57 @@ def plot_image_grid(
         return axs
 
 
-def plot_keypoints(kpts, colors="lime", ps=4, axes=None, a=1.0):
+def plot_keypoints(
+    kpts,
+    colors="lime",
+    ps=4,
+    axes=None,
+    a=1.0,
+    edgecolors=None,
+    facecolors=None,
+    lw=0.0,
+):
     """Plot keypoints for existing images.
     Args:
         kpts: list of ndarrays of size (N, 2).
         colors: string, or list of list of tuples (one for each keypoints).
         ps: size of the keypoints as float.
+        edgecolors/facecolors: per-keypoint colors for borders/fills.
+        lw: linewidth for keypoint borders.
     """
+    n = len(kpts)
     if not isinstance(colors, list):
-        colors = [colors] * len(kpts)
+        colors = [colors] * n
     if not isinstance(a, list):
-        a = [a] * len(kpts)
+        a = [a] * n
+    if not isinstance(ps, list):
+        ps = [ps] * n
+    if edgecolors is None:
+        edgecolors = colors
+    elif not isinstance(edgecolors, list):
+        edgecolors = [edgecolors] * n
+    if facecolors is None:
+        facecolors = colors
+    elif not isinstance(facecolors, list):
+        facecolors = [facecolors] * n
+    if not isinstance(lw, list):
+        lw = [lw] * n
     if axes is None:
         axes = plt.gcf().axes
-    for ax, k, c, alpha in zip(axes, kpts, colors, a):
+    for ax, k, fc, ec, alpha, size, lwidth in zip(
+        axes, kpts, facecolors, edgecolors, a, ps, lw
+    ):
         if isinstance(k, torch.Tensor):
             k = k.detach().cpu().numpy()
-        ax.scatter(k[:, 0], k[:, 1], c=c, s=ps, linewidths=0, alpha=alpha)
+        ax.scatter(
+            k[:, 0],
+            k[:, 1],
+            s=size,
+            linewidths=lwidth,
+            alpha=alpha,
+            facecolors=fc,
+            edgecolors=ec,
+        )
 
 
 def plot_matches(kpts0, kpts1, color=None, lw=1.5, ps=4, a=1.0, labels=None, axes=None):

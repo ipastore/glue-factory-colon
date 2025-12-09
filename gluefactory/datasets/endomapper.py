@@ -330,7 +330,8 @@ class _PairDataset(torch.utils.data.Dataset):
             bounds=(0, min(image_size))
         )
         cache["descriptors"] = pad_to_length(
-            cache["descriptors"], max_num_features, -2, mode="zeros"
+            cache["descriptors"], max_num_features, -2, mode="random"
+
         )
         cache["scales"] = pad_to_length(
             cache["scales"], max_num_features, -1, mode="zeros"
