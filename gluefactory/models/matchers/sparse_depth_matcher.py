@@ -1,6 +1,7 @@
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 import torch
-from pathlib import Path
 
 from ...geometry.gt_generation import (
     gt_matches_from_pose_sparse_depth,
@@ -8,7 +9,7 @@ from ...geometry.gt_generation import (
 )
 from ... import settings
 from ..base_model import BaseModel
-from ...visualization.gt_visualize_matches import make_gt_debug_figures
+from ...visualization.gt_visualize_matches import make_gt_debug_figures, make_gt_pos_figures
 
 # Hacky workaround for torch.amp.custom_fwd to support older versions of PyTorch.
 AMP_CUSTOM_FWD_F32 = (
@@ -16,6 +17,40 @@ AMP_CUSTOM_FWD_F32 = (
     if hasattr(torch.amp, "custom_fwd")
     else torch.cuda.amp.custom_fwd(cast_inputs=torch.float32)
 )
+
+
+def _prepare_fig_names(names, num_figs):
+    """Format the filenames used when saving debug figures."""
+    if isinstance(names, torch.Tensor):
+        names = names.tolist() if names.ndim > 0 else names.item()
+    if hasattr(names, "item"):
+        names = names.item()
+
+    formatted = []
+    for idx in range(num_figs):
+        fname = names
+        if isinstance(names, (list, tuple)):
+            fname = names[idx] if idx < len(names) else names[0]
+        fname = str(fname).replace("/", "__")
+        parts = fname.split("__")
+        if len(parts) >= 3:
+            fname = f"{parts[0]}_{parts[1]}_{parts[2]}"
+        elif len(parts) == 2:
+            fname = f"{parts[0]}_{parts[1]}"
+        else:
+            fname = parts[0]
+        formatted.append(fname)
+    return formatted
+
+
+def _save_figures(figs, names, save_dir):
+    """Persist a list of matplotlib figures to disk and close them."""
+    save_dir.mkdir(parents=True, exist_ok=True)
+    for fname, fig in zip(names, figs):
+        fig.savefig(
+            save_dir / f"{fname}.png", bbox_inches="tight", pad_inches=0, dpi=300
+        )
+        plt.close(fig)
 
 
 class SparseDepthMatcher(BaseModel):
@@ -99,25 +134,18 @@ class SparseDepthMatcher(BaseModel):
                 base_dir = Path(settings.TRAINING_PATH) / getattr(
                     self.conf, "experiment_name", "debug"
                 )
+                names = _prepare_fig_names(
+                    data.get("names", data.get("idx", "pair")),
+                    num_figs=data["keypoints0"].shape[0],
+                )
                 save_dir = base_dir / "seq_map_gt_viz"
-                save_dir.mkdir(parents=True, exist_ok=True)
-                names = data.get("names", data.get("idx", "pair"))
-                if hasattr(names, "item"):
-                    names = names.item()
-                for j, fig in enumerate(figs):
-                    fname = names
-                    if isinstance(names, (list, tuple)):
-                        fname = names[j] if j < len(names) else names[0]
-                    fname = str(fname).replace("/", "__")
-                    parts = fname.split("__")
-                    if len(parts) >= 3:
-                        fname = f"{parts[0]}_{parts[1]}_{parts[2]}"
-                    elif len(parts) == 2:
-                        fname = f"{parts[0]}_{parts[1]}"
-                    else:
-                        fname = parts[0]
-                    fig.savefig(save_dir / f"{fname}.png", bbox_inches="tight", pad_inches=0, dpi=300)
-                    plt.close(fig)
+                _save_figures(figs, names, save_dir)
+
+                gt_pos_figs = make_gt_pos_figures(
+                    plot_pred, data, n_pairs=data["keypoints0"].shape[0]
+                )
+                pos_dir = base_dir / "seq_map_gt_pos"
+                _save_figures(gt_pos_figs, names, pos_dir)
         return result
 
     def loss(self, pred, data):

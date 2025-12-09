@@ -213,3 +213,86 @@ def make_gt_debug_figures(pred_, data_, n_pairs=2):
         figs.append(fig)
 
     return figs
+
+def make_gt_pos_figures(pred_, data_, n_pairs=2):
+    """Return a list of per-pair GT positive figures."""
+    if "0to1" in pred_.keys():
+        pred_ = pred_["0to1"]
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+
+    view0, view1 = data["view0"], data["view1"]
+    n_pairs = min(n_pairs, view0["image"].shape[0])
+
+    kp0, kp1 = data["keypoints0"], data["keypoints1"]
+    gt_m0 = pred["matches0"]
+    overlap = data.get("overlap_0to1")
+    val3D_mask0 = data.get("valid_3D_mask0")
+    val3D_mask1 = data.get("valid_3D_mask1")
+    pad_mask0 = data.get("keypoint_scores0")
+    pad_mask1 = data.get("keypoint_scores1")
+
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
+    else:
+        pad_mask0 = torch.ones_like(gt_m0, dtype=torch.bool)
+    if pad_mask1 is not None:
+        pad_mask1 = pad_mask1 > 0
+    else:
+        pad_mask1 = torch.ones_like(pred["matches1"], dtype=torch.bool)
+
+    figs = []
+    for i in range(n_pairs):
+        gt_pos_mask0 = pad_mask0[i] & (gt_m0[i] > -1)
+        matched_kp0 = kp0[i][gt_pos_mask0].numpy()
+        matched_idx1 = gt_m0[i][gt_pos_mask0].long()
+        matched_kp1 = kp1[i][matched_idx1].numpy()
+
+        imgs = [
+            view0["image"][i].permute(1, 2, 0),
+            view1["image"][i].permute(1, 2, 0),
+        ]
+        h, w = imgs[0].shape[:2]
+        figsize = (2 * w / 300, (h / 300) * 1.2)
+        fig, axes = plot_image_grid(
+            [imgs],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(figsize[0], figsize[1])
+
+        if matched_kp0.shape[0]:
+            plot_matches(
+                matched_kp0,
+                matched_kp1,
+                color="limegreen",
+                axes=axes[0],
+                a=0.7,
+                lw=1.0,
+                ps=2.5,
+            )
+
+        ov = overlap[i].item() if overlap is not None else float("nan")
+        kp0_tot = int(pad_mask0[i].sum())
+        kp1_tot = int(pad_mask1[i].sum())
+        kp0_3d = int(val3D_mask0[i].sum()) if val3D_mask0 is not None else 0
+        kp1_3d = int(val3D_mask1[i].sum()) if val3D_mask1 is not None else 0
+        fig.suptitle(
+            " | ".join(
+                [
+                    f"ov: {ov:.2f}",
+                    f"KP0 tot: {kp0_tot} KP0-3D: {kp0_3d}",
+                    f"KP1 tot: {kp1_tot} KP1-3D: {kp1_3d}",
+                    f"GT_POS: {matched_kp0.shape[0]}",
+                ]
+            ),
+            fontsize=8,
+            y=0.99,
+            va="bottom",
+        )
+        fig.subplots_adjust(top=1.02)
+        figs.append(fig)
+
+    return figs
