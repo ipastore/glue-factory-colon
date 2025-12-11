@@ -2,16 +2,16 @@ data:
     name: endomapper
     data_dir: Endomapper_CUDASIFT_DIC25
     train_split: train_seqs.txt
-    train_num_per_scene: 10 #300
+    train_num_per_scene: null  #300
     val_split: val_seqs.txt
     val_pairs: null
     min_overlap: 0.1
     max_overlap: 0.7
     num_overlap_bins: 3
-    batch_size: 2   #32
-    num_workers: 8  #14
+    batch_size: 32
+    num_workers: 14
     max_num_features: 1024
-    min_images_per_map: 0
+    min_images_per_map: 0 
     min_3D_points_per_map: 0
     read_image: true
     grayscale: false
@@ -30,11 +30,11 @@ model:
         input_dim: 128
     ground_truth:
         name:  matchers.sparse_depth_matcher
-        use_sparse_depth: false
-        th_positive: 3
-        th_negative: 5
-        th_epi: 5
-        save_fig_when_debug: true
+        use_gt_pos: true
+        th_positive: null
+        th_negative: null
+        th_epi: null
+        save_fig_when_debug: false
     allow_no_extract: True
 train:
     seed: 0

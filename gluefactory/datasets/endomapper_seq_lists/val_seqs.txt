@@ -1,6 +1,3 @@
-  
-Seq_020_a.mp4
-Seq_020_b.mp4
-Seq_024_a.mp4
-Seq_024_b.mp4
-Seq_024_c.mp4
+Seq_024_a
+Seq_024_b
+Seq_024_c

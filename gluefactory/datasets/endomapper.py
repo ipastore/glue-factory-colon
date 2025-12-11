@@ -282,7 +282,19 @@ class _PairDataset(torch.utils.data.Dataset):
                 / "keyframes"
                 / name
             )
-            image = load_image(image_path, grayscale=self.conf.grayscale)
+            def _dummy_image():
+                c = 1 if self.conf.grayscale else 3
+                w, h = int(image_size[0].item()), int(image_size[1].item())
+                return torch.zeros((c, h, w), dtype=torch.float32)
+            if not image_path.exists():
+                logger.warning("Image not found at %s, using dummy.", image_path)
+                image = _dummy_image()
+            else:
+                try:
+                    image = load_image(image_path, grayscale=self.conf.grayscale)
+                except Exception:
+                    logger.warning("Failed to load image at %s, using dummy.", image_path)
+                    image = _dummy_image()
         sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
         keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()  
         descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()  

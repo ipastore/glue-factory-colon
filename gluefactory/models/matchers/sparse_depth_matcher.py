@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import torch
 
 from ...geometry.gt_generation import (
-    gt_matches_from_pose_sparse_depth,
     gt_matches_from_pose_sparse_map,
 )
 from ... import settings
@@ -55,7 +54,7 @@ def _save_figures(figs, names, save_dir):
 
 class SparseDepthMatcher(BaseModel):
     default_conf = {
-        "use_sparse_depth": True,
+        "use_gt_pos": False,
         "th_positive": 3.0,
         "th_negative": 5.0,
         "th_epi": None,  # add some more epi outliers
@@ -83,42 +82,26 @@ class SparseDepthMatcher(BaseModel):
     @AMP_CUSTOM_FWD_F32
     def _forward(self, data):
         result = {}
-        if self.conf.use_sparse_depth:
-            keys = [
-                "sparse_depth0",
-                "valid_3D_mask0",
-                "sparse_depth1",
-                "valid_3D_mask1",
-            ]
-            kw = {k: data[k] for k in keys}
-            result = gt_matches_from_pose_sparse_depth(
-                data["keypoints0"],
-                data["keypoints1"],
-                data,
-                pos_th=self.conf.th_positive,
-                neg_th=self.conf.th_negative,
-                epi_th=self.conf.th_epi,
-                cc_th=self.conf.th_consistency,
-                **kw,
-            )
-        else:
-            keys = [
-                "point3D_ids0",
-                "valid_3D_mask0",
-                "point3D_ids1",
-                "valid_3D_mask1",
-            ]
-            kw = {k: data[k] for k in keys}
-            result = gt_matches_from_pose_sparse_map(
-                data["keypoints0"],
-                data["keypoints1"],
-                data,
-                pos_th=self.conf.th_positive,
-                neg_th=self.conf.th_negative,
-                epi_th=self.conf.th_epi,
-                cc_th=self.conf.th_consistency,
-                **kw,
-            )
+        keys = [
+            "sparse_depth0",
+            "valid_3D_mask0",
+            "sparse_depth1",
+            "valid_3D_mask1",
+            "point3D_ids0",
+            "point3D_ids1",
+        ]
+        kw = {k: data[k] for k in keys}
+        result = gt_matches_from_pose_sparse_map(
+            data["keypoints0"],
+            data["keypoints1"],
+            data,
+            pos_th=self.conf.th_positive,
+            neg_th=self.conf.th_negative,
+            epi_th=self.conf.th_epi,
+            cc_th=self.conf.th_consistency,
+            use_gt_pos=self.conf.use_gt_pos,
+            **kw,
+        )
         if self.conf.save_fig_when_debug:
             if "image" in data["view0"] and "image" in data["view1"]:
                 with torch.no_grad():

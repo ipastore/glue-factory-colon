@@ -6,6 +6,7 @@ Author: Paul-Edouard Sarlin (skydes)
 
 import argparse
 import copy
+import math
 import re
 import shutil
 import signal
@@ -458,6 +459,24 @@ def training(rank, conf, output_dir, args):
                     getattr(loader.dataset, conf.train.dataset_callback_fn)(
                         conf.train.seed + epoch
                     )
+        if rank == 0:
+            def _log_loader_stats(name, loader):
+                size = len(loader.dataset)
+                bs = getattr(loader, "batch_size", None)
+                drop_last = getattr(loader, "drop_last", False)
+                iter_per_epoch = size / bs
+                logger.info(
+                    "%s epoch stats: size=%d, batch_size=%s, drop_last=%s, "
+                    "loader_batches=%d, iter_per_epoch=%.2f",
+                    name,
+                    size,
+                    bs,
+                    drop_last,
+                    len(loader),
+                    iter_per_epoch,
+                )
+            _log_loader_stats("Train", train_loader)
+            _log_loader_stats("Val", val_loader)
         for it, data in enumerate(train_loader):
             tot_it = (len(train_loader) * epoch + it) * (
                 args.n_gpus if args.distributed else 1
