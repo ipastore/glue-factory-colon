@@ -34,7 +34,7 @@ def sample_n(data, num, seed=None):
 class Endomapper(BaseDataset):
     default_conf = {
         # paths
-        "data_dir": "Endomapper_CUDASIFT_NOV25/",
+        "data_dir": "Endomapper_CUDASIFT/",
         "npz_subpath": "processed_npz/",
         # Training
         "train_split": "train_seqs_maps.txt",
@@ -86,13 +86,26 @@ class _PairDataset(torch.utils.data.Dataset):
 
         split_conf = conf[split + "_split"]
         if isinstance(split_conf, (str, Path)):
-            seqs_maps_path = seq_lists_path / split_conf
-            seqs_maps = seqs_maps_path.read_text().rstrip("\n").split("\n")
+            seqs_path = seq_lists_path / split_conf
+            seqs = seqs_path.read_text().rstrip("\n").split("\n")
         elif isinstance(split_conf, Iterable):
-            seqs_maps = list(split_conf)
+            seqs = list(split_conf)
         else:
             raise ValueError(f"Unknown split configuration: {split_conf}.")
-        seqs_maps = sorted(set(seqs_maps))
+        seqs = sorted(set(seqs))
+
+        seqs_maps = []
+        npz_dir = self.root / self.conf.npz_subpath
+        for seq in seqs:
+            matching_files = sorted(npz_dir.glob(f"{seq}_map*.npz"))
+            if not matching_files:
+                logger.warning(f"No maps found for sequence {seq} in {npz_dir}")
+                continue
+            for npz_file in matching_files:
+                seq_map = npz_file.stem
+                seqs_maps.append(seq_map)
+        
+        logger.info(f"Found {len(seqs_maps)} maps from {len(seqs)} sequences for {split} split")
 
 
         self.seq: Dict[str, str] = {}

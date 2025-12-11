@@ -19,14 +19,14 @@ from gluefactory.datasets.endomapper_utils import (
     read_points3D_txt,
 )
 
+from gluefactory.settings import DATA_PATH
+
 # Default root from AGENTS instructions
 # DEFAULT_ROOT = Path(
 #     "/media/student/HDD/nacho/glue-factory/data/Endomapper_CUDASIFT_OCT25"
 # )
 
-DEFAULT_ROOT = Path(
-    "/home/student/glue-factory-colon/data/Endomapper_CUDASIFT_NOV25"
-)
+DEFAULT_ROOT = DATA_PATH / "Endomapper_CUDASIFT"
 
 
 def parse_args() -> argparse.Namespace:
