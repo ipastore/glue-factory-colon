@@ -103,18 +103,6 @@ def gt_matches_from_pose_sparse_map(
     ).float()
     inf = epi_dist.new_tensor(float("inf"))
 
-    
-    ########## DEBUG ###########
-    mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
-    _log_error_distribution(
-        epi_dist,
-        mask_ignore,
-        label="epi",
-        squared=False,
-        overlap=data["overlap_0to1"],
-    )
-    ########## DEBUG ###########
-
     # Add hard negatives using epipolar geometry where no 3D match exists
     if epi_th is not None:
         mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
@@ -171,17 +159,6 @@ def gt_matches_from_pose_sparse_depth(
     inf = dist.new_tensor(float("inf"))
     dist = torch.where(mask_visible, dist, inf)
 
-    ########## DEBUG ###########
-    _log_error_distribution(
-        dist,
-        mask_visible,
-        label="reproj",
-        squared=True,
-        overlap=data["overlap_0to1"],
-    )
-    ########## DEBUG ###########
-
-
     min0 = dist.min(-1).indices
     min1 = dist.min(-2).indices
 
@@ -211,16 +188,6 @@ def gt_matches_from_pose_sparse_depth(
     )
     epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
 
-    ########## DEBUG ###########
-    mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
-    _log_error_distribution(
-        epi_dist,
-        mask_ignore,
-        label="epi",
-        squared=False,
-        overlap=data["overlap_0to1"],
-    )
-    ########## DEBUG ###########
     epi_th_val = epi_th if epi_th is not None else neg_th
 
     # Add some more unmatched points using epipolar geometry
@@ -289,16 +256,6 @@ def gt_matches_from_pose_depth(
     inf = dist.new_tensor(float("inf"))
     dist = torch.where(mask_visible, dist, inf)
 
-    ########## DEBUG ###########
-    _log_error_distribution(
-        dist,
-        mask_visible,
-        label="reproj",
-        squared=True,
-        overlap=data["overlap_0to1"],
-    )
-    ########## DEBUG ###########
-
     min0 = dist.min(-1).indices
     min1 = dist.min(-2).indices
 
@@ -328,17 +285,6 @@ def gt_matches_from_pose_depth(
     )
     epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
     epi_th_val = epi_th if epi_th is not None else neg_th
-
-    ########## DEBUG ###########
-    mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
-    _log_error_distribution(
-        epi_dist,
-        mask_ignore,
-        label="epi",
-        squared=False,
-        overlap=data["overlap_0to1"],
-    )
-    ########## DEBUG ###########
 
     # Add some more unmatched points using epipolar geometry
     if epi_th is not None:

@@ -20,7 +20,7 @@ from ..models.utils.misc import pad_to_length
 
 
 logger = logging.getLogger(__name__)
-seq_lists_path = Path(__file__).parent / "endomapper_seq_map_lists"
+seq_lists_path = Path(__file__).parent / "endomapper_seq_lists"
 
 
 def sample_n(data, num, seed=None):
@@ -34,8 +34,8 @@ def sample_n(data, num, seed=None):
 class Endomapper(BaseDataset):
     default_conf = {
         # paths
-        "data_dir": "Endomapper_CUDASIFT/",
-        "npz_subpath": "processed_npz/",
+        "data_dir": "Endomapper_CUDASIFT",
+        "npz_subpath": "processed_npz",
         # Training
         "train_split": "train_seqs_maps.txt",
         "train_num_per_scene": 500,

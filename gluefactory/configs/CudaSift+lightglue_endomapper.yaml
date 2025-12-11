@@ -1,8 +1,9 @@
 data:
     name: endomapper
-    train_split: train_seqs_maps.txt
+    data_dir: Endomapper_CUDASIFT_DIC25
+    train_split: train_seqs.txt
     train_num_per_scene: 10 #300
-    val_split: val_seqs_maps.txt
+    val_split: val_seqs.txt
     val_pairs: null
     min_overlap: 0.1
     max_overlap: 0.7

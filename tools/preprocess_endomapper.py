@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
+import subprocess
 
 from gluefactory.datasets.endomapper_utils import (
     MISSING_DEPTH_VALUE,
@@ -21,24 +22,29 @@ from gluefactory.datasets.endomapper_utils import (
 
 from gluefactory.settings import DATA_PATH
 
-# Default root from AGENTS instructions
-# DEFAULT_ROOT = Path(
-#     "/media/student/HDD/nacho/glue-factory/data/Endomapper_CUDASIFT_OCT25"
-# )
-
 DEFAULT_ROOT = DATA_PATH / "Endomapper_CUDASIFT"
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Preprocess Endomapper COLMAP outputs and CUDASIFT features into NPZ caches."
     )
     parser.add_argument(
-        "--root",
-        type=Path,
-        default=DEFAULT_ROOT,
-        help="Root folder containing Seq_XXX_Y sequences.",
+    "--video-root",
+    type=Path,
+    default=None,
+    help="Root directory containing video files (e.g., ~/all_sequences). If provided, extracts keyframes.",
     )
+    parser.add_argument(
+        "--skip-frame-extraction",
+        action="store_true",
+        help="Skip frame extraction even if --video-root is provided.",
+    )
+    parser.add_argument(
+            "--root",
+            type=Path,
+            default=DEFAULT_ROOT,
+            help="Root folder containing Seq_XXX_Y sequences.",
+        )
     parser.add_argument(
         "--output-dir",
         type=Path,
@@ -66,6 +72,44 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
+def _extract_frames_for_sequence(
+    seq_dir: Path,
+    video_root: Path,
+    map_ids: List[str],
+    out_root: Path,
+) -> bool:
+    """Extract frames for a sequence using extract_frames_depths_matches_endomapper_seq.py"""
+    seq_name = seq_dir.name
+    video_path = video_root / f"{seq_name}.mp4"
+    
+    if not video_path.exists():
+        print(f"  [warn] Video not found: {video_path}")
+        return False
+    
+    maps_root = seq_dir / "output" / "3D_maps"
+    if not maps_root.exists():
+        print(f"  [warn] No 3D_maps directory: {maps_root}")
+        return False
+    
+    print(f"  [frames] Extracting keyframes for {seq_name}...")
+    
+    cmd = [
+        "python3",
+        "tools/extract_frames_depths_matches_endomapper_seq.py",
+        "--maps_root", str(maps_root),
+        "--keyframes",
+        "--video", str(video_path),
+        "--number_from", "name",
+        "--out_root", str(out_root),
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True)
+        print(f"  [frames] ✓ Extracted frames for {seq_name}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"  [frames] ✗ Failed to extract frames: {e.stderr}")
+        return False
 
 def _find_sequences(root: Path, names: List[str] | None) -> List[Path]:
     if names:
@@ -218,12 +262,31 @@ def main():
     args = parse_args()
     root = args.root
     out_dir = args.output_dir or (root / "processed_npz")
+    video_root = args.video_root
 
     sequences = _find_sequences(root, args.sequences)
     if not sequences:
         print(f"No sequences found under {root}")
         return 1
 
+    # First pass: extract frames if requested
+    if video_root and not args.skip_frame_extraction:
+        print("=" * 60)
+        print("STEP 1: Extracting keyframes from videos")
+        print("=" * 60)
+        for seq_dir in sequences:
+            map_ids = _find_map_ids(seq_dir, args.map_ids)
+            if not map_ids:
+                print(f"[skip] {seq_dir.name}: no maps under output/3D_maps/")
+                continue
+            _extract_frames_for_sequence(seq_dir, video_root, map_ids, root)
+        print()
+
+    # Second pass: process sequences into NPZ
+    print("=" * 60)
+    print("STEP 2: Processing sequences into NPZ caches")
+    print("=" * 60)
+    
     for seq_dir in sequences:
         map_ids = _find_map_ids(seq_dir, args.map_ids)
         if not map_ids:
