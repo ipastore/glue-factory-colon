@@ -40,7 +40,7 @@ train:
     seed: 0
     epochs: 50
     log_every_iter: 100
-    eval_every_iter: 1000
+    eval_every_iter: 999999 #1000
     lr: 1e-4
     lr_schedule:
         start: 30

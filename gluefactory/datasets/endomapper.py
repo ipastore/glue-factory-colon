@@ -271,7 +271,7 @@ class _PairDataset(torch.utils.data.Dataset):
         name = str(self.image_names[seq_map][idx])
         image_size = torch.tensor(self.image_sizes[seq_map][idx]).float()
         image = None
-        if self.conf.read_image:
+        if self.conf.read_image and self.split != "train":
             name = f"Keyframe_{name}.png"
             image_path = (
                 self.root
