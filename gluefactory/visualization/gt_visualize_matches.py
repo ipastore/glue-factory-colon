@@ -5,6 +5,29 @@ from ..utils.tensor import batch_to_device
 from .viz2d import plot_image_grid, plot_keypoints, plot_matches
 
 
+def _split_source_masks(map_mask, reproj_mask, pad_mask):
+    """Keep masks per source, removing pad and map overlap."""
+    map_mask_v = map_mask.to(torch.bool) & pad_mask
+    reproj_mask_v = (reproj_mask.to(torch.bool) & pad_mask) & ~map_mask_v
+    return map_mask_v, reproj_mask_v
+
+
+def _compute_view_stats(gt_m, pred_m, pad_mask):
+    """Compute per-view stats and masks for FN/TN counting."""
+    stats_mask = pad_mask & (gt_m != -2)
+    gt_stats = gt_m[stats_mask]
+    pred_stats = pred_m[stats_mask]
+    fn_mask = (gt_stats > -1) & (pred_stats == -1)
+    tn_mask = (gt_stats == -1) & (pred_stats == -1)
+    return {
+        "stats_mask": stats_mask,
+        "fn_mask": fn_mask,
+        "tn_mask": tn_mask,
+        "num_fn": int(fn_mask.sum()),
+        "num_tn": int(tn_mask.sum()),
+    }
+
+
 def make_gt_debug_figures(gt_, data_, n_pairs=2):
     """Return a list of per-pair GT debug figures."""
 
@@ -56,25 +79,19 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         fig.set_size_inches(figsize[0], figsize[1])
 
         true_positives = gt_m0[i][val_pred_mask] == pred_m0[i][val_pred_mask]
-        stats_mask0 = pad_mask0[i] & (gt_m0[i] != -2)
-        stats_mask1 = pad_mask1[i] & (gt_m1[i] != -2)
-        gt_stats0 = gt_m0[i][stats_mask0]
-        pred_stats0 = pred_m0[i][stats_mask0]
-        gt_stats1 = gt_m1[i][stats_mask1]
-        pred_stats1 = pred_m1[i][stats_mask1]
-        fn_stats0 = (gt_stats0 > -1) & (pred_stats0 == -1)
-        tn_stats0 = (gt_stats0 == -1) & (pred_stats0 == -1)
-        fn_stats1 = (gt_stats1 > -1) & (pred_stats1 == -1)
-        tn_stats1 = (gt_stats1 == -1) & (pred_stats1 == -1)
-        num_false_negatives0 = int(fn_stats0.sum())
-        num_true_negatives0 = int(tn_stats0.sum())
-        num_false_negatives1 = int(fn_stats1.sum())
-        num_true_negatives1 = int(tn_stats1.sum())
+        view0_stats = _compute_view_stats(gt_m0[i], pred_m0[i], pad_mask0[i])
+        view1_stats = _compute_view_stats(gt_m1[i], pred_m1[i], pad_mask1[i])
+        num_false_negatives0 = view0_stats["num_fn"]
+        num_true_negatives0 = view0_stats["num_tn"]
+        num_false_negatives1 = view1_stats["num_fn"]
+        num_true_negatives1 = view1_stats["num_tn"]
         num_true_positives = int(true_positives.sum())
         num_false_positives = int((~true_positives).sum())
 
-        kpts0_stats = kp0[i][stats_mask0]
-        kpts1_stats = kp1[i][stats_mask1]
+        kpts0_stats = kp0[i][view0_stats["stats_mask"]]
+        kpts1_stats = kp1[i][view1_stats["stats_mask"]]
+        fn_stats0 = view0_stats["fn_mask"]
+        fn_stats1 = view1_stats["fn_mask"]
 
         kp0_pos_mask = pad_mask0[i] & (gt_m0[i] > -1)
         kp1_pos_mask = pad_mask1[i] & (gt_m1[i] > -1)
@@ -83,13 +100,13 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         kp0_ign_mask = pad_mask0[i] & (gt_m0[i] == -2)
         kp1_ign_mask = pad_mask1[i] & (gt_m1[i] == -2)
 
-        kp0_map_mask = map_pos0_mask[i] & pad_mask0[i]
-        kp1_map_mask = map_pos1_mask[i] & pad_mask1[i]
-        kp0_reproj_mask = reproj_pos0_mask[i] & pad_mask0[i]
-        kp1_reproj_mask = reproj_pos1_mask[i] & pad_mask1[i]
+        kp0_map_mask, kp0_reproj_mask = _split_source_masks(
+            map_pos0_mask[i], reproj_pos0_mask[i], pad_mask0[i]
+        )
+        kp1_map_mask, kp1_reproj_mask = _split_source_masks(
+            map_pos1_mask[i], reproj_pos1_mask[i], pad_mask1[i]
+        )
 
-        kp0_reproj_mask = kp0_reproj_mask & ~kp0_map_mask
-        kp1_reproj_mask = kp1_reproj_mask & ~kp1_map_mask
         map_pos = int(kp0_map_mask.sum())
         reproj_pos = int(kp0_reproj_mask.sum())
 
