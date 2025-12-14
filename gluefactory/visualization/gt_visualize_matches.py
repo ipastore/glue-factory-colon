@@ -1,7 +1,8 @@
 import torch
+import matplotlib.colors as mcolors
 
 from ..utils.tensor import batch_to_device
-from .viz2d import cm_RdGn, plot_heatmaps, plot_image_grid, plot_keypoints, plot_matches
+from .viz2d import plot_image_grid, plot_keypoints, plot_matches
 
 
 def make_gt_debug_figures(gt_, data_, n_pairs=2):
@@ -22,6 +23,10 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
     pad_mask0 = data["keypoint_scores0"]>0
     pad_mask1 = data["keypoint_scores1"]>0
     overlap = data["overlap_0to1"]
+    map_pos0_mask = gt.get("mask_pos_3d_map0")
+    map_pos1_mask = gt.get("mask_pos_3d_map1")
+    reproj_pos0_mask = gt.get("mask_pos_reproj0")
+    reproj_pos1_mask = gt.get("mask_pos_reproj1")
 
     figs = []
     for i in range(n_pairs):
@@ -68,17 +73,48 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         num_true_positives = int(true_positives.sum())
         num_false_positives = int((~true_positives).sum())
 
-
         kpts0_stats = kp0[i][stats_mask0]
         kpts1_stats = kp1[i][stats_mask1]
 
-        match_colors = cm_RdGn(true_positives)
+        kp0_pos_mask = pad_mask0[i] & (gt_m0[i] > -1)
+        kp1_pos_mask = pad_mask1[i] & (gt_m1[i] > -1)
+        kp0_neg_mask = pad_mask0[i] & (gt_m0[i] == -1)
+        kp1_neg_mask = pad_mask1[i] & (gt_m1[i] == -1)
+        kp0_ign_mask = pad_mask0[i] & (gt_m0[i] == -2)
+        kp1_ign_mask = pad_mask1[i] & (gt_m1[i] == -2)
+
+        kp0_map_mask = map_pos0_mask[i] & pad_mask0[i]
+        kp1_map_mask = map_pos1_mask[i] & pad_mask1[i]
+        kp0_reproj_mask = reproj_pos0_mask[i] & pad_mask0[i]
+        kp1_reproj_mask = reproj_pos1_mask[i] & pad_mask1[i]
+
+        kp0_reproj_mask = kp0_reproj_mask & ~kp0_map_mask
+        kp1_reproj_mask = kp1_reproj_mask & ~kp1_map_mask
+        map_pos = int(kp0_map_mask.sum())
+        reproj_pos = int(kp0_reproj_mask.sum())
+
+        match_colors = ["limegreen" if tp else "red" for tp in true_positives.tolist()]
+        pred_indices0 = torch.nonzero(val_pred_mask, as_tuple=False).squeeze(-1)
+        pred_indices1 = pred_m0[i][pred_indices0]
+        gt_labels0 = gt_m0[i][pred_indices0]
+        gt_labels1 = gt_m1[i][pred_indices1]
+        ignored_pair = (gt_labels0 == -2) & (gt_labels1 == -2)
+        fp_ignored = int((~true_positives & ignored_pair).sum())
+        fp_regular = num_false_positives - fp_ignored
+        line_colors = [
+            "limegreen" if tp else ("white" if ign else "red")
+            for tp, ign in zip(true_positives.tolist(), ignored_pair.tolist())
+        ]
+
+        line_colors_rgba = (
+            [mcolors.to_rgba(c) for c in line_colors] if len(line_colors) else line_colors
+        )
 
         # TP and FP, green and red lines
         plot_matches(
             kpm0,
             kpm1,
-            color=match_colors.tolist(),
+            color=line_colors_rgba,
             axes=axes[0],
             a=0.6,
             lw=0.5,
@@ -88,22 +124,24 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         plot_keypoints(
             [kpm0, kpm1],
             axes=axes[0],
-            edgecolors=[match_colors.tolist(), match_colors.tolist()],
+            edgecolors=[match_colors, match_colors],
             facecolors=["none","none"],
             ps=[2, 2],
-            lw=[0.5, 0.5],
+            lw=[0.3, 0.3],
         )
 
-        # TP and FN green faces
-        kp0_pos_mask = pad_mask0[i] & (gt_m0[i] > -1)
-        kp1_pos_mask = pad_mask1[i] & (gt_m1[i] > -1)
-        kp0_neg_mask =  pad_mask0[i] & (gt_m0[i] == -1)
-        kp1_neg_mask = pad_mask1[i] & (gt_m1[i] == -1)
-        kp0_ign_mask = pad_mask0[i] & (gt_m0[i] == -2)
-        kp1_ign_mask = pad_mask1[i] & (gt_m1[i] == -2)
-        
+        # TP faces (map vs reprojection)
         plot_keypoints(
-            [kp0[i][kp0_pos_mask], kp1[i][kp1_pos_mask]],
+            [kp0[i][kp0_reproj_mask], kp1[i][kp1_reproj_mask]],
+            axes=axes[0],
+            facecolors=["purple", "purple"],
+            edgecolors=["limegreen", "limegreen"],
+            lw=[0.5, 0.5],
+            ps=[2, 2],
+        )
+
+        plot_keypoints(
+            [kp0[i][kp0_map_mask], kp1[i][kp1_map_mask]],
             axes=axes[0],
             facecolors=["limegreen", "limegreen"],
             ps=[2, 2],
@@ -131,16 +169,17 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
             [kpts0_stats[fn_stats0], kpts1_stats[fn_stats1]],
             axes=axes[0],
             edgecolors=["black", "black"],
-            ps=[2, 2],
-            lw=[0.5, 0.5],
+            facecolors=["none", "none"],
+            ps=[3, 3],
+            lw=[0.3, 0.3],
         )
 
     
         title_line0 = " | ".join(
             [   
-                f"KP: tot/pos/neg/ign                                           "  #using tabs
+                f"KP: tot/pos/neg/ign                                      "  #using tabs
                 f"ov: {overlap[i]:.2f}",    # Take into account that some keypoints and 3D points could have been truncated: ov =! GT_POS/min(KP3D)
-                f"GT_POS: {(gt_m0[i]>-1).sum()}",
+                f"GT_POS map+reproj: {map_pos}+{reproj_pos}",
                 f"n_pred: {val_pred_mask.sum()}"
 
             ]
@@ -150,10 +189,11 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
                 f"IMG0-> "    
                 f"KP: {pad_mask0[i].sum()}/{kp0_pos_mask.sum()}/{kp0_neg_mask.sum()}/{kp0_ign_mask.sum()}",
                 f"KP_3D: {data['valid_3D_mask0'][i].sum()}", 
-                f"TP(lines): {num_true_positives}",
-                f"FP(lines): {num_false_positives}",
-                f"TN0: {num_true_negatives0}",
+                f"TP: {num_true_positives}",
+                f"FP: {fp_regular}",
+                f"FP ign: {fp_ignored}",
                 f"FN0: {num_false_negatives0}",
+                f"TN0: {num_true_negatives0}",
             ]
         )
         title_line2 = " | ".join(
@@ -161,10 +201,11 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
                 f"IMG1-> " 
                 f"KP: {pad_mask1[i].sum()}/{kp1_pos_mask.sum()}/{kp1_neg_mask.sum()}/{kp1_ign_mask.sum()}",
                 f"KP_3D: {data['valid_3D_mask1'][i].sum()}",
-                f"TP(lines): {num_true_positives}",
-                f"FP(lines): {num_false_positives}",
-                f"TN1: {num_true_negatives1}",
+                f"TP: {num_true_positives}",
+                f"FP: {fp_regular}",
+                f"FP ign: {fp_ignored}",
                 f"FN1: {num_false_negatives1}",
+                f"TN1: {num_true_negatives1}",
             ]
         )
         fig.suptitle(
@@ -175,11 +216,13 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         # Add colored legend in a column on the right side
         from matplotlib.patches import Patch
         legend_elements = [
-            Patch(facecolor='limegreen', edgecolor='none', label='GT pos'),
+            Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
+            Patch(facecolor='purple', edgecolor='limegreen', label='GT pos reproj'),
             Patch(facecolor='blue', edgecolor='none', label='GT neg'),
             Patch(facecolor='dimgray', edgecolor='none', label='GT ign'),
             Patch(facecolor='none', edgecolor='limegreen', label='TP'),
             Patch(facecolor='none', edgecolor='red', label='FP'),
+            Patch(facecolor='none', edgecolor='lightgray', label='FP ignored'),
             Patch(facecolor='none', edgecolor='black', label='FN'),
             Patch(facecolor='none', edgecolor='blue', label='TN'),
         ]
