@@ -90,13 +90,17 @@ def gt_matches_from_pose_sparse_map(
     )
 
     ids0, ids1 = kw["point3D_ids0"].long(), kw["point3D_ids1"].long()
-    valid0, valid1 = kw["valid_3D_mask0"],  kw["valid_3D_mask1"]
+    valid_3D_0, valid_3D_1 = kw["valid_3D_mask0"],  kw["valid_3D_mask1"]
+    depth0 = None
+    depth1 = None
+    d0, d1 = kw["sparse_depth0"], kw["sparse_depth1"]
+    valid_d0, valid_d1 = kw["valid_depth_mask0"], kw["valid_depth_mask1"]
 
     if use_gt_pos:
         positive_gt = (
             (ids0.unsqueeze(-1) == ids1.unsqueeze(-2))
-            & valid0.unsqueeze(-1)
-            & valid1.unsqueeze(-2)
+            & valid_3D_0.unsqueeze(-1)
+            & valid_3D_1.unsqueeze(-2)
         )
         idx0 = positive_gt.float().argmax(-1)
         idx1 = positive_gt.float().argmax(-2)
@@ -104,16 +108,12 @@ def gt_matches_from_pose_sparse_map(
         m1 = torch.where(positive_gt.any(-2), idx1, m1)
         positive = positive | positive_gt
 
-    depth0 = None
-    depth1 = None
-    d0, d1 = kw["sparse_depth0"], kw["sparse_depth1"]
-
     # Two sources of error: noisy depth, no kannala-brandt projection model
     kp0_1, visible0 = project(
-        kp0, d0, depth1, camera0, camera1, T_0to1, valid0, ccth=cc_th
+        kp0, d0, depth1, camera0, camera1, T_0to1, valid_d0, ccth=cc_th
     )
     kp1_0, visible1 = project(
-        kp1, d1, depth0, camera1, camera0, T_1to0, valid1, ccth=cc_th
+        kp1, d1, depth0, camera1, camera0, T_1to0, valid_d1, ccth=cc_th
     )
     mask_visible = visible0.unsqueeze(-1) & visible1.unsqueeze(-2)
 
@@ -138,8 +138,8 @@ def gt_matches_from_pose_sparse_map(
         m1 = torch.where((m1 == ignore) & positive_dist.any(-2), min1, m1)
 
     if neg_th is not None:
-        negative0 = (dist0.min(-1).values > neg_th**2) & valid0
-        negative1 = (dist1.min(-2).values > neg_th**2) & valid1
+        negative0 = (dist0.min(-1).values > neg_th**2) & valid_d0
+        negative1 = (dist1.min(-2).values > neg_th**2) & valid_d1
         m0 = torch.where((m0 == ignore) & negative0, unmatched, m0)
         m1 = torch.where((m1 == ignore) & negative1, unmatched, m1)
 
@@ -157,8 +157,8 @@ def gt_matches_from_pose_sparse_map(
         epi_dist = torch.where(mask_ignore, epi_dist, inf)
         exclude0 = epi_dist.min(-1).values > epi_th
         exclude1 = epi_dist.min(-2).values > epi_th
-        m0 = torch.where(exclude0 & (~valid0) & (m0 == ignore), unmatched, m0)
-        m1 = torch.where(exclude1 & (~valid1) & (m1 == ignore), unmatched, m1)
+        m0 = torch.where(exclude0 & (~valid_d0) & (m0 == ignore), unmatched, m0)
+        m1 = torch.where(exclude1 & (~valid_d1) & (m1 == ignore), unmatched, m1)
 
     reward_pos = (
         (dist < pos_th**2).float() if pos_th is not None else torch.zeros_like(dist)

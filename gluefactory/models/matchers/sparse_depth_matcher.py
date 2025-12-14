@@ -89,6 +89,8 @@ class SparseDepthMatcher(BaseModel):
             "valid_3D_mask1",
             "point3D_ids0",
             "point3D_ids1",
+            "valid_depth_mask0",
+            "valid_depth_mask1"
         ]
         kw = {k: data[k] for k in keys}
         result = gt_matches_from_pose_sparse_map(

@@ -158,7 +158,7 @@ def make_gt_debug_figures(pred_, data_, n_pairs=2):
         title_line0 = " | ".join(
             [   
                 f"KP: tot/pos/neg/ign                                           "  #using tabs
-                f"ov: {overlap[i]:.2f}",
+                f"ov: {overlap[i]:.2f}",    # Take into account that some keypoints and 3D points could have been truncated: ov =! GT_POS/min(KP3D)
                 f"GT_POS: {(gt_m0[i]>-1).sum()}",
 
             ]
