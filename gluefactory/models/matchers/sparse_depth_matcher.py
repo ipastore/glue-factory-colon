@@ -81,7 +81,7 @@ class SparseDepthMatcher(BaseModel):
 
     @AMP_CUSTOM_FWD_F32
     def _forward(self, data):
-        result = {}
+        gt = {}
         keys = [
             "sparse_depth0",
             "valid_3D_mask0",
@@ -93,7 +93,7 @@ class SparseDepthMatcher(BaseModel):
             "valid_depth_mask1"
         ]
         kw = {k: data[k] for k in keys}
-        result = gt_matches_from_pose_sparse_map(
+        gt = gt_matches_from_pose_sparse_map(
             data["keypoints0"],
             data["keypoints1"],
             data,
@@ -106,15 +106,9 @@ class SparseDepthMatcher(BaseModel):
         )
         if self.conf.save_fig_when_debug:
             if "image" in data["view0"] and "image" in data["view1"]:
-                with torch.no_grad():
-                    plot_pred = {
-                        **result,
-                        "keypoints0": data["keypoints0"],
-                        "keypoints1": data["keypoints1"],
-                        "gt_matches0": result["matches0"],
-                    }
+
                 figs = make_gt_debug_figures(
-                    plot_pred, data, n_pairs=data["keypoints0"].shape[0]
+                    gt, data, n_pairs=data["keypoints0"].shape[0]
                 )
                 base_dir = Path(settings.TRAINING_PATH) / getattr(
                     self.conf, "experiment_name", "debug"
@@ -127,11 +121,11 @@ class SparseDepthMatcher(BaseModel):
                 _save_figures(figs, names, save_dir)
 
                 gt_pos_figs = make_gt_pos_figures(
-                    plot_pred, data, n_pairs=data["keypoints0"].shape[0]
+                    gt, data, n_pairs=data["keypoints0"].shape[0]
                 )
                 pos_dir = base_dir / "seq_map_gt_pos"
                 _save_figures(gt_pos_figs, names, pos_dir)
-        return result
+        return gt
 
     def loss(self, pred, data):
         raise NotImplementedError
