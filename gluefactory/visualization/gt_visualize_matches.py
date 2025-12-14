@@ -3,6 +3,8 @@ import matplotlib.colors as mcolors
 
 from ..utils.tensor import batch_to_device
 from .viz2d import plot_image_grid, plot_keypoints, plot_matches
+from matplotlib.patches import Patch
+
 
 
 def _split_source_masks(map_mask, reproj_mask, pad_mask):
@@ -231,7 +233,6 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         fig.subplots_adjust(top=1.1)
             
         # Add colored legend in a column on the right side
-        from matplotlib.patches import Patch
         legend_elements = [
             Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
             Patch(facecolor='purple', edgecolor='limegreen', label='GT pos reproj'),
@@ -273,6 +274,8 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
     val3D_mask1 = data.get("valid_3D_mask1")
     pad_mask0 = data.get("keypoint_scores0")
     pad_mask1 = data.get("keypoint_scores1")
+    map_pos0_mask = pred["mask_pos_3d_map0"]
+    reproj_pos0_mask = pred["mask_pos_reproj0"]
 
     if pad_mask0 is not None:
         pad_mask0 = pad_mask0 > 0
@@ -285,10 +288,16 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
 
     figs = []
     for i in range(n_pairs):
-        gt_pos_mask0 = pad_mask0[i] & (gt_m0[i] > -1)
-        matched_kp0 = kp0[i][gt_pos_mask0].numpy()
-        matched_idx1 = gt_m0[i][gt_pos_mask0].long()
-        matched_kp1 = kp1[i][matched_idx1].numpy()
+        kp0_map_mask, kp0_reproj_mask = _split_source_masks(
+            map_pos0_mask[i], reproj_pos0_mask[i], pad_mask0[i]
+        )
+        map_kp0 = kp0[i][kp0_map_mask].numpy()
+        map_idx1 = gt_m0[i][kp0_map_mask].long()
+        map_kp1 = kp1[i][map_idx1].numpy()
+
+        reproj_kp0 = kp0[i][kp0_reproj_mask].numpy()
+        reproj_idx1 = gt_m0[i][kp0_reproj_mask].long()
+        reproj_kp1 = kp1[i][reproj_idx1].numpy()
 
         imgs = [
             view0["image"][i].permute(1, 2, 0),
@@ -305,15 +314,25 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
         )
         fig.set_size_inches(figsize[0], figsize[1])
 
-        if matched_kp0.shape[0]:
+        if map_kp0.shape[0]:
             plot_matches(
-                matched_kp0,
-                matched_kp1,
+                map_kp0,
+                map_kp1,
                 color="limegreen",
                 axes=axes[0],
                 a=0.7,
                 lw=1.0,
                 ps=2.5,
+            )
+        if reproj_kp0.shape[0]:
+            plot_matches(
+                reproj_kp0,
+                reproj_kp1,
+                color="purple",
+                axes=axes[0],
+                a=0.7,
+                lw=0.8,
+                ps=2.0,
             )
 
         ov = overlap[i].item() if overlap is not None else float("nan")
@@ -321,13 +340,15 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
         kp1_tot = int(pad_mask1[i].sum())
         kp0_3d = int(val3D_mask0[i].sum()) if val3D_mask0 is not None else 0
         kp1_3d = int(val3D_mask1[i].sum()) if val3D_mask1 is not None else 0
+        map_pos = int(kp0_map_mask.sum())
+        reproj_pos = int(kp0_reproj_mask.sum())
         fig.suptitle(
             " | ".join(
                 [
                     f"ov: {ov:.2f}",
                     f"KP0 tot: {kp0_tot} KP0-3D: {kp0_3d}",
                     f"KP1 tot: {kp1_tot} KP1-3D: {kp1_3d}",
-                    f"GT_POS: {matched_kp0.shape[0]}",
+                    f"GT_POS map+reproj: {map_pos}+{reproj_pos}",
                 ]
             ),
             fontsize=8,
@@ -335,6 +356,18 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
             va="bottom",
         )
         fig.subplots_adjust(top=1.02)
+        legend_elements = [
+            Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
+            Patch(facecolor='purple', edgecolor='none', label='GT pos reproj'),
+        ]
+        fig.legend(
+            handles=legend_elements,
+            loc='center left',
+            fontsize=6,
+            framealpha=0.7,
+            bbox_to_anchor=(1.02, 0.8),
+            ncol=1,
+        )
         figs.append(fig)
 
     return figs
