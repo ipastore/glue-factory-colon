@@ -334,6 +334,7 @@ class _PairDataset(torch.utils.data.Dataset):
 
         
         # Truncate features based on scores
+        # TODO: Try not to filter keypoints with valid3D
         max_num_features = self.conf.get("max_num_features", None)
         if max_num_features is None:
             raise ValueError("max_num_features must be not None")

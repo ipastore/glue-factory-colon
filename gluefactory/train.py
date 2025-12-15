@@ -72,28 +72,85 @@ default_train_conf = {
     "pr_curves": {},
     "plot": None,
     "submodules": [],
+    "save_eval_figs": False,  # persist evaluation figures to disk
 }
 default_train_conf = OmegaConf.create(default_train_conf)
 
 
 @torch.no_grad()
-def do_evaluation(model, loader, device, loss_fn, conf, rank, pbar=True):
+def do_evaluation(
+    model,
+    loader,
+    device,
+    loss_fn,
+    conf,
+    rank,
+    pbar=True,
+    baseline_model=None,
+    plot_ids=None,
+    baseline_preds=None,
+    baseline_store=None,
+    plot_kwargs=None,
+):
     model.eval()
+    if baseline_model is not None:
+        baseline_model.eval()
     results = {}
     pr_metrics = defaultdict(PRMetric)
     figures = []
+    if plot_ids is None:
+        plot_ids = []
+    plot_fn = None
+    plot_requires_oob = False
     if conf.plot is not None:
         n, plot_fn = conf.plot
-        plot_ids = np.random.choice(len(loader), min(len(loader), n), replace=False)
+        plot_ids = (
+            plot_ids
+            if len(plot_ids)
+            else np.random.choice(len(loader), min(len(loader), n), replace=False)
+        )
+        plot_requires_oob = (
+            "visualize_compare_lgoob.make_compare_lg_oob_figures" in plot_fn
+        )
     for i, data in enumerate(
         tqdm(loader, desc="Evaluation", ascii=True, disable=not pbar)
     ):
         data = batch_to_device(data, device, non_blocking=True)
         with torch.no_grad():
             pred = model(data)
+            oob_pred = None
+            if baseline_store is not None and i in list(plot_ids):
+                baseline_store[i] = batch_to_device(pred, "cpu", non_blocking=False)
             losses, metrics = loss_fn(pred, data)
-            if conf.plot is not None and i in plot_ids:
-                figures.append(locate(plot_fn)(pred, data))
+            if (
+                conf.plot is not None
+                and i in plot_ids
+                and rank == 0
+                and plot_fn is not None
+            ):
+                if plot_requires_oob and baseline_model is not None:
+                    oob_pred = baseline_model(data)
+                if plot_requires_oob and baseline_preds is not None:
+                    oob_pred = baseline_preds.get(i, oob_pred)
+                gt_values = {
+                    k[len("gt_") :]: v for k, v in pred.items() if k.startswith("gt_")
+                }
+                plot_callable = locate(plot_fn)
+                plot_result = (
+                    plot_callable(
+                        pred,
+                        data,
+                        pred_oob=oob_pred,
+                        gt=gt_values,
+                        **(plot_kwargs or {}),
+                    )
+                    if plot_requires_oob
+                    else plot_callable(pred, data, **(plot_kwargs or {}))
+                )
+                if isinstance(plot_result, list):
+                    figures.extend(plot_result)
+                else:
+                    figures.append(plot_result)
             # add PR curves
             for k, v in conf.pr_curves.items():
                 pr_metrics[k].update(
@@ -218,6 +275,43 @@ def write_image_summaries(writer, name, figures, step):
             writer.add_figure(f"{name}/{k}", fig, step)
 
 
+def save_eval_figures(figures, save_dir: Path, prefix: str):
+    save_dir.mkdir(parents=True, exist_ok=True)
+    dpi = 300
+    if isinstance(figures, list):
+        for i, figs in enumerate(figures):
+            if isinstance(figs, dict):
+                for k, fig in figs.items():
+                    fig.savefig(
+                        save_dir / f"{prefix}_{i}_comparison.png",
+                        bbox_inches="tight",
+                        pad_inches=0,
+                        dpi=dpi,
+                    )
+            else:
+                figs.savefig(
+                    save_dir / f"{prefix}_{i}_comparison.png",
+                    bbox_inches="tight",
+                    pad_inches=0,
+                    dpi=dpi,
+                )
+    elif isinstance(figures, dict):
+        for k, fig in figures.items():
+            fig.savefig(
+                save_dir / f"{prefix}_comparison.png",
+                bbox_inches="tight",
+                pad_inches=0,
+                dpi=dpi,
+            )
+    else:
+        figures.savefig(
+            save_dir / f"{prefix}_comparison.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=dpi,
+        )
+
+
 def training(rank, conf, output_dir, args):
     if args.restore:
         logger.info(f"Restoring from previous training of {args.experiment}")
@@ -331,15 +425,47 @@ def training(rank, conf, output_dir, args):
     stop = False
     signal.signal(signal.SIGINT, sigint_handler)
     model = get_model(conf.model.name)(conf.model).to(device)
-    if args.compile:
-        model = torch.compile(model, mode=args.compile)
-    loss_fn = model.loss
     if init_cp is not None:
         model.load_state_dict(init_cp["model"], strict=False)
         # Verify checkpoint loading
         verify_checkpoint_loading(init_cp, model, logger, module_prefix="matcher")
+    loss_fn = model.loss
+    requires_oob_plot = bool(
+        conf.train.plot
+        and "visualize_compare_lgoob.make_compare_lg_oob_figures"
+        in conf.train.plot[1]
+    )
+    plot_ids_static = None
+    baseline_preds_cache = None
+    baseline_ready = False
+    if requires_oob_plot:
+        n, _ = conf.train.plot
+        plot_ids_static = np.random.choice(
+            len(val_loader), min(len(val_loader), n), replace=False
+        )
+        if rank == 0:
+            logger.info("Running initial eval to cache OOB predictions for plotting.")
+            baseline_preds_cache = {}
+            baseline_conf = copy.deepcopy(conf.train)
+            baseline_conf.plot = None
+            baseline_conf.save_eval_figs = False
+            with fork_rng(seed=conf.train.seed):
+                do_evaluation(
+                    model,
+                    val_loader,
+                    device,
+                    loss_fn,
+                    baseline_conf,
+                    rank,
+                    pbar=(rank == 0),
+                    plot_ids=plot_ids_static,
+                    baseline_store=baseline_preds_cache,
+                )
+        baseline_ready = True
 
-    
+    if args.compile:
+        model = torch.compile(model, mode=args.compile)
+
     if args.distributed:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device])
@@ -583,14 +709,15 @@ def training(rank, conf, output_dir, args):
             del pred, data, loss, losses
 
             # Run validation
-            if (
+            run_eval = (
                 (
                     it % conf.train.eval_every_iter == 0
                     and (it > 0 or epoch == -int(args.no_eval_0))
                 )
                 or stop
                 or it == (len(train_loader) - 1)
-            ):
+            )
+            if run_eval and not (baseline_ready and epoch == 0 and it == 0):
                 with fork_rng(seed=conf.train.seed):
                     results, pr_metrics, figures = do_evaluation(
                         model,
@@ -600,6 +727,11 @@ def training(rank, conf, output_dir, args):
                         conf.train,
                         rank,
                         pbar=(rank == 0),
+                        baseline_preds=baseline_preds_cache,
+                        plot_ids=plot_ids_static,
+                        plot_kwargs=(
+                            {"epoch_idx": epoch} if conf.train.plot is not None else None
+                        ),
                     )
 
                 if rank == 0:
@@ -612,6 +744,11 @@ def training(rank, conf, output_dir, args):
                     write_dict_summaries(writer, "val", results, tot_n_samples)
                     write_dict_summaries(writer, "val", pr_metrics, tot_n_samples)
                     write_image_summaries(writer, "figures", figures, tot_n_samples)
+                    if conf.train.save_eval_figs:
+                        save_dir = output_dir / "eval_figs"
+                        save_eval_figures(
+                            figures, save_dir, f"E{epoch}"
+                        )
                     # @TODO: optional always save checkpoint
                     if results[conf.train.best_key] < best_eval:
                         best_eval = results[conf.train.best_key]
@@ -642,6 +779,11 @@ def training(rank, conf, output_dir, args):
                         conf.train,
                         rank,
                         pbar=(rank == 0),
+                        baseline_preds=baseline_preds_cache,
+                        plot_ids=plot_ids_static,
+                        plot_kwargs=(
+                            {"epoch_idx": epoch} if conf.train.plot is not None else None
+                        ),
                     )
                     best_eval = results[conf.train.best_key]
                 best_eval = save_experiment(
