@@ -389,7 +389,7 @@ class _PairDataset(torch.utils.data.Dataset):
             "name": name,
             "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
-            "camera": Camera.from_calibration_matrix(K).float(),
+            "camera": Camera.from_calibration_matrix(K).float(),   #TODO Add an OPENCV fish instead. Maybe with from_colmap ?
             "image_size": image_size, #WxH
         }
         if image is not None:

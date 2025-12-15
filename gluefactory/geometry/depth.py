@@ -49,10 +49,10 @@ def project(
     if sample_depth_kwargs is None:
         sample_depth_kwargs = {}
 
-    kpi_3d_i = camera_i.image2cam(kpi)
-    kpi_3d_i = kpi_3d_i * di[..., None]
-    kpi_3d_j = T_itoj.transform(kpi_3d_i)
-    kpi_j, validj = camera_j.cam2image(kpi_3d_j)
+    kpi_3d_i = camera_i.image2cam(kpi) # To homogeneous
+    kpi_3d_i = kpi_3d_i * di[..., None] # Multiply by depth (camerai)
+    kpi_3d_j = T_itoj.transform(kpi_3d_i) # Transform to cameraj
+    kpi_j, validj = camera_j.cam2image(kpi_3d_j)  #Project, distort, normalize, is_in_image?
     # di_j = kpi_3d_j[..., -1]
     validi = validi & validj
     if depthj is None or ccth is None:
