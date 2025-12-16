@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 import torch
 
@@ -125,6 +127,125 @@ def distort_points(pts, dist):
             # TODO: handle tangential boundaries
 
     return undist, valid
+
+
+def distort_points_fisheye_kb4(
+    pts: torch.Tensor, dist: torch.Tensor, eps: float = 1e-12
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Distort normalized 2D coordinates using the OpenCV/Colmap fisheye KB4 model.
+
+    Args:
+        pts: normalized coordinates with shape (..., 2).
+        dist: distortion coefficients with shape (..., 4) as (k1, k2, k3, k4).
+        eps: threshold to handle r=0 safely.
+    Returns:
+        pts_d: distorted normalized coordinates with shape (..., 2).
+        valid: boolean mask with shape (...) indicating finite output.
+    """
+    assert pts.shape[-1] == 2
+    dist = dist.unsqueeze(-2)  # add point dimension for broadcasting
+    ndist = dist.shape[-1]
+
+    if ndist == 0:
+        valid = torch.ones(pts.shape[:-1], device=pts.device, dtype=torch.bool)
+        return pts, valid
+
+    k = dist[..., :4]
+    if k.shape[-1] < 4:
+        k = torch.cat(
+            [
+                k,
+                torch.zeros(
+                    k.shape[:-1] + (4 - k.shape[-1],), device=k.device, dtype=k.dtype
+                ),
+            ],
+            dim=-1,
+        )
+    k1, k2, k3, k4 = k.split(1, dim=-1)
+
+    r = torch.norm(pts, p=2, dim=-1, keepdim=True)
+    theta = torch.atan(r)
+    theta2 = theta * theta
+    theta3 = theta * theta2
+    theta5 = theta3 * theta2
+    theta7 = theta5 * theta2
+    theta9 = theta7 * theta2
+    theta_d = theta + k1 * theta3 + k2 * theta5 + k3 * theta7 + k4 * theta9
+
+    scale = torch.ones_like(r)
+    valid_r = r > eps
+    scale = torch.where(valid_r, theta_d / r, scale)
+    pts_d = pts * scale
+    valid = torch.isfinite(pts_d).all(dim=-1)
+    return pts_d, valid
+
+
+def undistort_points_fisheye_kb4(
+    pts_d: torch.Tensor,
+    dist: torch.Tensor,
+    max_iters: int = 10,
+    tol: float = 1e-12,
+    eps: float = 1e-12,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Invert the OpenCV/Colmap fisheye KB4 distortion model (Newton iterations on theta).
+
+    Args:
+        pts_d: distorted normalized coordinates with shape (..., 2).
+        dist: distortion coefficients with shape (..., 4) as (k1, k2, k3, k4).
+    Returns:
+        pts: undistorted normalized coordinates with shape (..., 2).
+        valid: boolean mask with shape (...) indicating finite output.
+    """
+    assert pts_d.shape[-1] == 2
+    dist = dist.unsqueeze(-2)  # add point dimension for broadcasting
+    ndist = dist.shape[-1]
+
+    if ndist == 0:
+        valid = torch.ones(pts_d.shape[:-1], device=pts_d.device, dtype=torch.bool)
+        return pts_d, valid
+
+    k = dist[..., :4]
+    if k.shape[-1] < 4:
+        k = torch.cat(
+            [
+                k,
+                torch.zeros(
+                    k.shape[:-1] + (4 - k.shape[-1],),
+                    device=k.device,
+                    dtype=k.dtype,
+                ),
+            ],
+            dim=-1,
+        )
+    k1, k2, k3, k4 = k.split(1, dim=-1)
+
+    theta_d = torch.norm(pts_d, p=2, dim=-1, keepdim=True)
+    theta = theta_d.clone()
+    active = theta_d > eps
+
+    for _ in range(max_iters):
+        theta2 = theta * theta
+        theta4 = theta2 * theta2
+        theta6 = theta4 * theta2
+        theta8 = theta4 * theta4
+
+        f = theta * (1.0 + k1 * theta2 + k2 * theta4 + k3 * theta6 + k4 * theta8) - theta_d
+        fp = 1.0 + 3.0 * k1 * theta2 + 5.0 * k2 * theta4 + 7.0 * k3 * theta6 + 9.0 * k4 * theta8
+        step = f / fp
+
+        theta_new = theta - step
+        theta = torch.where(active, theta_new, theta)
+        active = active & (torch.abs(step) >= tol)
+        if not bool(active.any()):
+            break
+
+    r = torch.tan(theta)
+    scale = torch.ones_like(theta_d)
+    valid_r = theta_d > eps
+    scale = torch.where(valid_r, r / theta_d, scale)
+    pts = pts_d * scale
+    valid = torch.isfinite(pts).all(dim=-1)
+    return pts, valid
 
 
 @torch.jit.script

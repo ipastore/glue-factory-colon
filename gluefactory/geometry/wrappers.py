@@ -14,6 +14,8 @@ import torch
 from .utils import (
     J_distort_points,
     distort_points,
+    distort_points_fisheye_kb4,
+    undistort_points_fisheye_kb4,
     skew_symmetric,
     so3exp_map,
     to_homogeneous,
@@ -364,6 +366,8 @@ class Camera(TensorWrapper):
         """
         assert pts.shape[-1] == 2
         # assert pts.shape[:-2] == self.shape  # allow broadcasting
+        if getattr(self, "model", None) == "OPENCV_FISHEYE":
+            return distort_points_fisheye_kb4(pts, self.dist)
         return distort_points(pts, self.dist)
 
     def J_distort(self, pts: torch.Tensor):
@@ -401,7 +405,8 @@ class Camera(TensorWrapper):
         """Convert 2D pixel corrdinates to 3D points with z=1"""
         assert self._data.shape
         p2d = self.normalize(p2d)
-        # iterative undistortion
+        if getattr(self, "model", None) == "OPENCV_FISHEYE":
+            p2d, _ = undistort_points_fisheye_kb4(p2d, self.dist)
         return to_homogeneous(p2d)
 
     def to_cameradict(self, camera_model: Optional[str] = None) -> List[Dict]:
