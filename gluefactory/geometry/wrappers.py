@@ -279,6 +279,53 @@ class Camera(TensorWrapper):
         data = torch.stack([2 * cx, 2 * cy, fx, fy, cx, cy], -1)
         return cls(data)
 
+    def __getitem__(self, index):
+        cam = self.__class__(self._data[index])
+        cam.model = self.model
+        return cam
+
+    def to(self, *args, **kwargs):
+        cam = self.__class__(self._data.to(*args, **kwargs))
+        cam.model = self.model
+        return cam
+
+    def cpu(self):
+        cam = self.__class__(self._data.cpu())
+        cam.model = self.model
+        return cam
+
+    def cuda(self):
+        cam = self.__class__(self._data.cuda())
+        cam.model = self.model
+        return cam
+
+    def pin_memory(self):
+        cam = self.__class__(self._data.pin_memory())
+        cam.model = self.model
+        return cam
+
+    def float(self):
+        cam = self.__class__(self._data.float())
+        cam.model = self.model
+        return cam
+
+    def double(self):
+        cam = self.__class__(self._data.double())
+        cam.model = self.model
+        return cam
+
+    def detach(self):
+        cam = self.__class__(self._data.detach())
+        cam.model = self.model
+        return cam
+
+    @classmethod
+    def stack(cls, objects: List, dim=0, *, out=None):
+        data = torch.stack([obj._data for obj in objects], dim=dim, out=out)
+        cam = cls(data)
+        cam.model = objects[0].model if len(objects) else cam.model
+        return cam
+
     @autocast
     def calibration_matrix(self):
         K = torch.zeros(
