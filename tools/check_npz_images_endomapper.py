@@ -9,29 +9,29 @@ try:
 except ImportError:
     cv2 = None
 
-# Expected keys in Endomapper NPZ files based on the preprocessing script
+# Expected keys in Endomapper NPZ files based on the preprocessing script.
 EXPECTED_KEYS = {
-    'image_names',
-    'image_sizes', 
-    'camera_ids',
-    'poses',
-    'intrinsics',
-    'distortion_coeffs',
-    'camera_model',
-    'map_id',
-    'seq',
-    'overlap_matrix',
-    'keypoints_per_image',
-    'descriptors_per_image',
-    'depths_per_image',
-    'scales_per_image',
-    'orientations_per_image',
-    'scores_per_image',
-    'point3D_ids_per_image',
-    'valid_depth_mask_per_image',
-    'valid_3d_mask_per_image',
-    'point3D_ids',
-    'point3D_coords',
+    "image_names",
+    "image_sizes",
+    "camera_ids",
+    "cameras",
+    "camera_indices",
+    "poses",
+    "intrinsics",
+    "map_id",
+    "seq",
+    "overlap_matrix",
+    "keypoints_per_image",
+    "descriptors_per_image",
+    "depths_per_image",
+    "scales_per_image",
+    "orientations_per_image",
+    "scores_per_image",
+    "point3D_ids_per_image",
+    "valid_depth_mask_per_image",
+    "valid_3d_mask_per_image",
+    "point3D_ids",
+    "point3D_coords",
 }
 
 def check_image(path: Path):
@@ -66,7 +66,6 @@ def check_npz(path: Path, data_root: Path, check_images: bool = True):
         # Check if we can access the keys
         keys = set(data.keys())
         
-        # Check for missing expected keys
         missing_keys = EXPECTED_KEYS - keys
         if missing_keys:
             data.close()

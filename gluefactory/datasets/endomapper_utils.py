@@ -1,7 +1,7 @@
 """Utilities to parse COLMAP exports for the Endomapper dataset."""
 
 from pathlib import Path
-from typing import Dict, List, NamedTuple, Tuple
+from typing import Any, Dict, List, NamedTuple, Tuple
 
 import numpy as np
 
@@ -185,6 +185,44 @@ def extract_poses(images: Dict[int, ColmapImage]) -> np.ndarray:
         T[:3, 3] = image.tvec.astype(np.float32)
         poses.append(T)
     return np.stack(poses, axis=0)
+
+
+def extract_cameras_npz(
+    cameras: Dict[int, ColmapCamera], images: Dict[int, ColmapImage]
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Build a compact camera cache for NPZ serialization.
+
+    Returns:
+        cameras_npz: (Nc,) object array of dicts with keys:
+            id, model, width, height, intrinsics (3x3 float32), params (float32)
+        camera_indices: (Ni,) int32 mapping sorted image ids -> camera dict index
+    """
+    image_ids = sorted(images.keys())
+    used_camera_ids = sorted({images[i].camera_id for i in image_ids})
+    cam_id_to_idx = {cid: idx for idx, cid in enumerate(used_camera_ids)}
+
+    cameras_dicts: List[Dict[str, Any]] = []
+    for cid in used_camera_ids:
+        cam = cameras[cid]
+        fx, fy, cx, cy = _camera_fx_fy_cx_cy(cam)
+        K = np.eye(3, dtype=np.float32)
+        K[0, 0], K[1, 1] = fx, fy
+        K[0, 2], K[1, 2] = cx, cy
+        cameras_dicts.append(
+            {
+                "id": int(cam.id),
+                "model": str(cam.model),
+                "width": int(cam.width),
+                "height": int(cam.height),
+                "intrinsics": K,
+                "params": np.asarray(cam.params, dtype=np.float32),
+            }
+        )
+
+    camera_indices = np.array(
+        [cam_id_to_idx[images[i].camera_id] for i in image_ids], dtype=np.int32
+    )
+    return np.array(cameras_dicts, dtype=object), camera_indices
 
 
 def read_features_txt(path: Path) -> Dict[int, Dict[str, np.ndarray]]:

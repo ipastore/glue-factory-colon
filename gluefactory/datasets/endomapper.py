@@ -116,7 +116,6 @@ class _PairDataset(torch.utils.data.Dataset):
         self.poses: Dict[str, np.ndarray] = {}
         self.intrinsics: Dict[str, np.ndarray] = {}
         self.valid: Dict[str, np.ndarray] = {}
-        self.dist_coeffs: Dict[str, np.ndarray] = {}
         self.point3D_ids_all: Dict[str, np.ndarray] = {}
         self.point3D_coords_all: Dict[str, np.ndarray] = {}
         self.overlap_matrix: Dict[str, np.ndarray] = {}
@@ -151,12 +150,10 @@ class _PairDataset(torch.utils.data.Dataset):
             self.camera_ids[seq_map] = data_npz["camera_ids"]
             self.poses[seq_map] = data_npz["poses"]
             self.intrinsics[seq_map] = data_npz["intrinsics"]
-
             self.map_id[seq_map] = str(np.asarray(data_npz["map_id"]).item())
             self.seq[seq_map] = str(np.asarray(data_npz["seq"]).item())
             self.point3D_ids_all[seq_map] = data_npz["point3D_ids"]
             self.point3D_coords_all[seq_map] = data_npz["point3D_coords"]
-            self.dist_coeffs[seq_map] = data_npz["distortion_coeffs"]
             self.overlap_matrix[seq_map] = data_npz["overlap_matrix"].astype(
                 np.float32, copy=False
             )
@@ -266,7 +263,6 @@ class _PairDataset(torch.utils.data.Dataset):
         data_npz = np.load(str(path), allow_pickle=True)
 
         # read pose data
-        K = self.intrinsics[seq_map][idx].astype(np.float32, copy=False)
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         name = str(self.image_names[seq_map][idx])
         image_size = torch.tensor(self.image_sizes[seq_map][idx]).float()
@@ -389,7 +385,9 @@ class _PairDataset(torch.utils.data.Dataset):
             "name": name,
             "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
-            "camera": Camera.from_calibration_matrix(K).float(),   #TODO Add an OPENCV fish instead. Maybe with from_colmap ?
+            "camera": Camera.from_npz(
+                data_npz["cameras"][int(np.asarray(data_npz["camera_indices"][idx]).item())]
+            ).float(),
             "image_size": image_size, #WxH
         }
         if image is not None:

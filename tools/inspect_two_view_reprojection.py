@@ -203,21 +203,8 @@ def _hstack_pad(left: np.ndarray, right: np.ndarray, *, pad_value: int = 255) ->
 
 
 def _camera_from_npz(npz: Dict, idx: int) -> Camera:
-    K = npz["intrinsics"][idx].astype(np.float32)
-    fx, fy, cx, cy = float(K[0, 0]), float(K[1, 1]), float(K[0, 2]), float(K[1, 2])
-    width, height = (int(x) for x in npz["image_sizes"][idx].tolist())
-    model = str(np.asarray(npz["camera_model"]).item())
-    dist = npz["distortion_coeffs"][idx].astype(np.float32)
-    if model == "OPENCV_FISHEYE":
-        params = np.array([fx, fy, cx, cy, *dist.tolist()], dtype=np.float32)
-    elif model in {"PINHOLE", "SIMPLE_PINHOLE"}:
-        params = np.array([fx, fy, cx, cy], dtype=np.float32)
-    else:
-        # Fallback: keep intrinsics and no distortion.
-        params = np.array([fx, fy, cx, cy], dtype=np.float32)
-        model = "PINHOLE"
-    cam = Camera.from_colmap({"model": model, "width": width, "height": height, "params": params})
-    return cam.float()
+    cam_idx = int(np.asarray(npz["camera_indices"][idx]).item())
+    return Camera.from_npz(npz["cameras"][cam_idx]).float()
 
 
 def _lookup_point3d_xyz(npz: Dict, point3d_ids: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

@@ -11,6 +11,7 @@ from gluefactory.datasets.endomapper_utils import (
     MISSING_DEPTH_VALUE,
     build_feature_depth_arrays,
     compute_overlap_matrix,
+    extract_cameras_npz,
     extract_intrinsics,
     extract_poses,
     read_cameras_txt,
@@ -133,13 +134,6 @@ def _load_sequence_colmap(seq_dir: Path, map_id: str):
     points3d = read_points3D_txt(colmap_dir / "points3D.txt")
     return cameras, images, points3d
 
-
-def _distortion_coeffs(camera_model: str, params: np.ndarray) -> np.ndarray:
-    if camera_model == "OPENCV_FISHEYE" and params.shape[0] >= 8:
-        return params[4:8].astype(np.float32)
-    return np.zeros((4,), dtype=np.float32)
-
-
 def _collect_point3d_arrays(points3d: Dict[int, object]) -> Tuple[np.ndarray, np.ndarray]:
     ids = np.array(sorted(points3d.keys()), dtype=np.int64)
     coords = np.stack([points3d[i].xyz for i in ids], axis=0) if len(ids) > 0 else np.zeros((0, 3))
@@ -160,15 +154,9 @@ def process_sequence(
         [(cameras[cid].width, cameras[cid].height) for cid in image_camera_ids],
         dtype=np.int32,
     )
-    camera_model = cameras[images[image_ids[0]].camera_id].model
-
     intrinsics = extract_intrinsics(cameras, images)
     poses = extract_poses(images)
-    distortion_coeffs = []
-    for image_id in image_ids:
-        image = images[image_id]
-        camera = cameras[image.camera_id]
-        distortion_coeffs.append(_distortion_coeffs(camera.model, camera.params))
+    cameras_npz, camera_indices = extract_cameras_npz(cameras, images)
 
     features_dir = seq_dir / f"output/3D_maps/{map_id}/features"
     depths_dir = seq_dir / f"output/3D_maps/{map_id}/depths"
@@ -236,10 +224,10 @@ def process_sequence(
         image_names=np.array(image_names, dtype=object),
         image_sizes=image_sizes,
         camera_ids=np.array(image_camera_ids, dtype=np.int64),
+        cameras=cameras_npz,
+        camera_indices=camera_indices,
         poses=poses,
         intrinsics=intrinsics,
-        distortion_coeffs=np.stack(distortion_coeffs, axis=0),
-        camera_model=camera_model,
         map_id=map_id,
         seq=seq_dir.name,
         overlap_matrix=overlap_matrix,

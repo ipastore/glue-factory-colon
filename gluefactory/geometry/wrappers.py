@@ -6,7 +6,7 @@ Based on PyTorch tensors: differentiable, batched, with GPU support.
 import functools
 import inspect
 import math
-from typing import Dict, List, NamedTuple, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -278,6 +278,30 @@ class Camera(TensorWrapper):
         fx, fy = K[..., 0, 0], K[..., 1, 1]
         data = torch.stack([2 * cx, 2 * cy, fx, fy, cx, cy], -1)
         return cls(data)
+
+    @classmethod
+    def from_npz(cls, camera: Mapping[str, Any]) -> "Camera":
+        """Camera from a lightweight NPZ-serialized dict.
+
+        Only the COLMAP `OPENCV_FISHEYE` model is supported.
+        """
+        if hasattr(camera, "item") and not isinstance(camera, dict):
+            camera = camera.item()
+        model = str(camera["model"])
+        if model != "OPENCV_FISHEYE":
+            raise NotImplementedError(f"Unsupported camera model in NPZ: {model}")
+        width = int(camera["width"])
+        height = int(camera["height"])
+        params = np.asarray(camera["params"], dtype=np.float32).reshape(-1)
+        if params.shape[0] != 8:
+            raise ValueError(
+                f"OPENCV_FISHEYE expects 8 params (fx, fy, cx, cy, k1-4), got {params.shape[0]}."
+            )
+        fx, fy, cx, cy, k1, k2, k3, k4 = (float(x) for x in params.tolist())
+        data = np.array([width, height, fx, fy, cx, cy, k1, k2, k3, k4], dtype=np.float32)
+        cam = cls(data)
+        cam.model = "OPENCV_FISHEYE"
+        return cam
 
     def __getitem__(self, index):
         cam = self.__class__(self._data[index])
