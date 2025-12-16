@@ -241,6 +241,7 @@ class Camera(TensorWrapper):
     def __init__(self, data: torch.Tensor):
         assert data.shape[-1] in {6, 8, 10}
         super().__init__(data)
+        self.model = {6: "PINHOLE", 8: "RADIAL", 10: "OPENCV"}[data.shape[-1]]
 
     @classmethod
     def from_colmap(cls, camera: Union[Dict, NamedTuple]):
@@ -253,19 +254,20 @@ class Camera(TensorWrapper):
         model = camera["model"]
         params = camera["params"]
 
-        if model in ["OPENCV", "PINHOLE", "RADIAL"]:
+        if model in ["OPENCV", "PINHOLE", "RADIAL", "OPENCV_FISHEYE"]:
             (fx, fy, cx, cy), params = np.split(params, [4])
         elif model in ["SIMPLE_PINHOLE", "SIMPLE_RADIAL"]:
             (f, cx, cy), params = np.split(params, [3])
             fx = fy = f
             if model == "SIMPLE_RADIAL":
                 params = np.r_[params, 0.0]
-        # TODO: Implement OPENCV_FISHEY model
         else:
             raise NotImplementedError(model)
 
         data = np.r_[camera["width"], camera["height"], fx, fy, cx, cy, params]
-        return cls(data)
+        cam = cls(data)
+        cam.model = model
+        return cam
 
     @classmethod
     @autocast
@@ -316,14 +318,18 @@ class Camera(TensorWrapper):
         """Update the camera parameters after resizing an image."""
         s = scales
         data = torch.cat([self.size * s, self.f * s, self.c * s, self.dist], -1)
-        return self.__class__(data)
+        cam = self.__class__(data)
+        cam.model = self.model
+        return cam
 
     def crop(self, left_top: Tuple[float], size: Tuple[int]):
         """Update the camera parameters after cropping an image."""
         left_top = self._data.new_tensor(left_top)
         size = self._data.new_tensor(size)
         data = torch.cat([size, self.f, self.c - left_top, self.dist], -1)
-        return self.__class__(data)
+        cam = self.__class__(data)
+        cam.model = self.model
+        return cam
 
     @autocast
     def in_image(self, p2d: torch.Tensor):
@@ -405,7 +411,7 @@ class Camera(TensorWrapper):
         assert data.dim() == 2
         b, d = data.shape
         if camera_model is None:
-            camera_model = {6: "PINHOLE", 8: "RADIAL", 10: "OPENCV"}[d]
+            camera_model = self.model
         cameras = []
         for i in range(b):
             if camera_model.startswith("SIMPLE_"):
