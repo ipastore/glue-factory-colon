@@ -136,8 +136,8 @@ def _load_sequence_colmap(seq_dir: Path, map_id: str):
 
 def _distortion_coeffs(camera_model: str, params: np.ndarray) -> np.ndarray:
     if camera_model == "OPENCV_FISHEYE" and params.shape[0] >= 8:
-        return params[4:8].astype(np.float64)
-    return np.zeros((4,), dtype=np.float64)
+        return params[4:8].astype(np.float32)
+    return np.zeros((4,), dtype=np.float32)
 
 
 def _collect_point3d_arrays(points3d: Dict[int, object]) -> Tuple[np.ndarray, np.ndarray]:

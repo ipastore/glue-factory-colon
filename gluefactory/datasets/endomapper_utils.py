@@ -80,7 +80,7 @@ def read_cameras_txt(path: Path) -> Dict[int, ColmapCamera]:
         camera_id = int(tokens[0])
         model = tokens[1]
         width, height = int(tokens[2]), int(tokens[3])
-        params = np.array(list(map(float, tokens[4:])), dtype=np.float64)
+        params = np.array(list(map(float, tokens[4:])), dtype=np.float32)
         if model == "OPENCV_FISHEYE" and params.shape[0] != 8:
             raise ValueError("OPENCV_FISHEYE expects 8 params (fx, fy, cx, cy, k1-4).")
         cameras[camera_id] = ColmapCamera(camera_id, model, width, height, params)
@@ -155,7 +155,7 @@ def _camera_fx_fy_cx_cy(camera: ColmapCamera) -> Tuple[float, float, float, floa
     if camera.params.shape[0] < 4:
         raise ValueError(f"Camera {camera.id} params missing fx, fy, cx, cy.")
     fx, fy, cx, cy = camera.params[:4]
-    return float(fx), float(fy), float(cx), float(cy)
+    return np.float32(fx), np.float32(fy), np.float32(cx), np.float32(cy)
 
 
 def extract_intrinsics(
@@ -167,7 +167,7 @@ def extract_intrinsics(
         image = images[image_id]
         camera = cameras[image.camera_id]
         fx, fy, cx, cy = _camera_fx_fy_cx_cy(camera)
-        K = np.eye(3, dtype=np.float64)
+        K = np.eye(3, dtype=np.float32)
         K[0, 0], K[1, 1] = fx, fy
         K[0, 2], K[1, 2] = cx, cy
         Ks.append(K)
@@ -179,9 +179,10 @@ def extract_poses(images: Dict[int, ColmapImage]) -> np.ndarray:
     poses = []
     for image_id in sorted(images.keys()):
         image = images[image_id]
-        T = np.eye(4, dtype=np.float64)
-        T[:3, :3] = qvec2rotmat(image.qvec)
-        T[:3, 3] = image.tvec
+        # use float32 to match downstream PyTorch tensors (GPU-friendly)
+        T = np.eye(4, dtype=np.float32)
+        T[:3, :3] = qvec2rotmat(image.qvec).astype(np.float32)
+        T[:3, 3] = image.tvec.astype(np.float32)
         poses.append(T)
     return np.stack(poses, axis=0)
 
@@ -228,7 +229,7 @@ def read_depths_txt(path: Path) -> Dict[int, float]:
             raise ValueError(f"Depth line for line {line} missing depth value.")
         
         kpid = int(tokens[0])
-        depth_val = float(tokens[1])
+        depth_val = np.float32(tokens[1])
         depths[kpid] = depth_val
     return depths
 
@@ -258,7 +259,7 @@ def build_feature_depth_arrays(
                 f"expected ({FEATURE_DIM},)."
             )
         descriptors[idx] = desc
-        depth_values[idx] = float(depths.get(kpid, MISSING_DEPTH_VALUE))
+        depth_values[idx] = np.float32(depths.get(kpid, MISSING_DEPTH_VALUE))
         scales[idx] = feat["scale"]
         orientations[idx] = feat["orientation"]
         scores[idx] = feat["score"]
