@@ -108,7 +108,11 @@ class SparseDepthMatcher(BaseModel):
             if "image" in data["view0"] and "image" in data["view1"]:
 
                 figs = make_gt_debug_figures(
-                    gt, data, n_pairs=data["keypoints0"].shape[0]
+                    gt,
+                    data,
+                    n_pairs=data["keypoints0"].shape[0],
+                    pos_th=self.conf.th_positive,
+                    neg_th=self.conf.th_negative,
                 )
                 base_dir = Path(settings.TRAINING_PATH) / getattr(
                     self.conf, "experiment_name", "debug"
@@ -121,7 +125,10 @@ class SparseDepthMatcher(BaseModel):
                 _save_figures(figs, names, save_dir)
 
                 gt_pos_figs = make_gt_pos_figures(
-                    gt, data, n_pairs=data["keypoints0"].shape[0]
+                    gt,
+                    data,
+                    n_pairs=data["keypoints0"].shape[0],
+                    pos_th=self.conf.th_positive,
                 )
                 pos_dir = base_dir / "seq_map_gt_pos"
                 _save_figures(gt_pos_figs, names, pos_dir)

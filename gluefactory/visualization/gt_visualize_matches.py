@@ -30,7 +30,7 @@ def _compute_view_stats(gt_m, pred_m, pad_mask):
     }
 
 
-def make_gt_debug_figures(gt_, data_, n_pairs=2):
+def make_gt_debug_figures(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
     """Return a list of per-pair GT debug figures."""
 
     gt = batch_to_device(gt_, "cpu", non_blocking=False)
@@ -112,7 +112,7 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         map_pos = int(kp0_map_mask.sum())
         reproj_pos = int(kp0_reproj_mask.sum())
 
-        match_colors = ["limegreen" if tp else "red" for tp in true_positives.tolist()]
+        match_colors = ["forestgreen" if tp else "red" for tp in true_positives.tolist()]
         pred_indices0 = torch.nonzero(val_pred_mask, as_tuple=False).squeeze(-1)
         pred_indices1 = pred_m0[i][pred_indices0]
         gt_labels0 = gt_m0[i][pred_indices0]
@@ -121,7 +121,7 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         fp_ignored = int((~true_positives & ignored_pair).sum())
         fp_regular = num_false_positives - fp_ignored
         line_colors = [
-            "limegreen" if tp else ("white" if ign else "red")
+            "forestgreen" if tp else ("white" if ign else "red")
             for tp, ign in zip(true_positives.tolist(), ignored_pair.tolist())
         ]
 
@@ -129,32 +129,32 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
             [mcolors.to_rgba(c) for c in line_colors] if len(line_colors) else line_colors
         )
 
-        # TP and FP, green and red lines
-        plot_matches(
-            kpm0,
-            kpm1,
-            color=line_colors_rgba,
-            axes=axes[0],
-            a=0.6,
-            lw=0.5,
-            ps=0.0,
-        )
-        # TP and FP, green and red edges
-        plot_keypoints(
-            [kpm0, kpm1],
-            axes=axes[0],
-            edgecolors=[match_colors, match_colors],
-            facecolors=["none","none"],
-            ps=[2, 2],
-            lw=[0.3, 0.3],
-        )
+        # # TP and FP, green and red lines
+        # plot_matches(
+        #     kpm0,
+        #     kpm1,
+        #     color=line_colors_rgba,
+        #     axes=axes[0],
+        #     a=0.6,
+        #     lw=0.5,
+        #     ps=0.0,
+        # )
+        # # TP and FP, green and red edges
+        # plot_keypoints(
+        #     [kpm0, kpm1],
+        #     axes=axes[0],
+        #     edgecolors=[match_colors, match_colors],
+        #     facecolors=["none","none"],
+        #     ps=[2, 2],
+        #     lw=[0.3, 0.3],
+        # )
 
         # TP faces (map vs reprojection)
         plot_keypoints(
             [kp0[i][kp0_reproj_mask], kp1[i][kp1_reproj_mask]],
             axes=axes[0],
             facecolors=["purple", "purple"],
-            edgecolors=["limegreen", "limegreen"],
+            edgecolors=["none", "none"],
             lw=[0.5, 0.5],
             ps=[2, 2],
         )
@@ -162,7 +162,7 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         plot_keypoints(
             [kp0[i][kp0_map_mask], kp1[i][kp1_map_mask]],
             axes=axes[0],
-            facecolors=["limegreen", "limegreen"],
+            facecolors=["forestgreen", "forestgreen"],
             ps=[2, 2],
         )
 
@@ -170,8 +170,8 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
         plot_keypoints(
             [kp0[i][kp0_neg_mask], kp1[i][kp1_neg_mask]],
             axes=axes[0],
-            facecolors=["blue", "blue"],
-            ps=[1, 1],
+            facecolors=["royalblue", "royalblue"],
+            ps=[2, 2],
         )
 
         # IGNORED face wout edge
@@ -179,40 +179,42 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
             [kp0[i][kp0_ign_mask], kp1[i][kp1_ign_mask]],
             axes=axes[0],
             facecolors=["dimgray", "dimgray"],
-            ps=[1, 1],
+            ps=[2, 2],
             # a=[0.6, 0.6],
         )
 
-        # FN edge
-        plot_keypoints(
-            [kpts0_stats[fn_stats0], kpts1_stats[fn_stats1]],
-            axes=axes[0],
-            edgecolors=["black", "black"],
-            facecolors=["none", "none"],
-            ps=[3, 3],
-            lw=[0.3, 0.3],
-        )
+        # # FN edge
+        # plot_keypoints(
+        #     [kpts0_stats[fn_stats0], kpts1_stats[fn_stats1]],
+        #     axes=axes[0],
+        #     edgecolors=["black", "black"],
+        #     facecolors=["none", "none"],
+        #     ps=[3, 3],
+        #     lw=[0.3, 0.3],
+        # )
 
     
-        title_line0 = " | ".join(
-            [   
-                f"KP: tot/pos/neg/ign                                      "  #using tabs
+        title_line0_parts = [
+                f"KP: tot/pos/neg/ign"  #using tabs
                 f"ov: {overlap[i]:.2f}",    # Take into account that some keypoints and 3D points could have been truncated: ov =! GT_POS/min(KP3D)
                 f"GT_POS map+reproj: {map_pos}+{reproj_pos}",
                 f"n_pred: {val_pred_mask.sum()}"
-
             ]
-        )
+        if pos_th is not None:
+            title_line0_parts.append(f"pos_th: {pos_th:g}")
+        if neg_th is not None:
+            title_line0_parts.append(f"neg_th: {neg_th:g}")
+        title_line0 = " | ".join(title_line0_parts)
         title_line1 = " | ".join(
             [
                 f"IMG0-> "    
                 f"KP: {pad_mask0[i].sum()}/{kp0_pos_mask.sum()}/{kp0_neg_mask.sum()}/{kp0_ign_mask.sum()}",
                 f"KP_3D: {data['valid_3D_mask0'][i].sum()}", 
-                f"TP: {num_true_positives}",
-                f"FP: {fp_regular}",
-                f"FP ign: {fp_ignored}",
-                f"FN0: {num_false_negatives0}",
-                f"TN0: {num_true_negatives0}",
+                # f"TP: {num_true_positives}",
+                # f"FP: {fp_regular}",
+                # f"FP ign: {fp_ignored}",
+                # f"FN0: {num_false_negatives0}",
+                # f"TN0: {num_true_negatives0}",
             ]
         )
         title_line2 = " | ".join(
@@ -220,11 +222,11 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
                 f"IMG1-> " 
                 f"KP: {pad_mask1[i].sum()}/{kp1_pos_mask.sum()}/{kp1_neg_mask.sum()}/{kp1_ign_mask.sum()}",
                 f"KP_3D: {data['valid_3D_mask1'][i].sum()}",
-                f"TP: {num_true_positives}",
-                f"FP: {fp_regular}",
-                f"FP ign: {fp_ignored}",
-                f"FN1: {num_false_negatives1}",
-                f"TN1: {num_true_negatives1}",
+                # f"TP: {num_true_positives}",
+                # f"FP: {fp_regular}",
+                # f"FP ign: {fp_ignored}",
+                # f"FN1: {num_false_negatives1}",
+                # f"TN1: {num_true_negatives1}",
             ]
         )
         fig.suptitle(
@@ -234,15 +236,15 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
             
         # Add colored legend in a column on the right side
         legend_elements = [
-            Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
-            Patch(facecolor='purple', edgecolor='limegreen', label='GT pos reproj'),
-            Patch(facecolor='blue', edgecolor='none', label='GT neg'),
+            Patch(facecolor='forestgreen', edgecolor='none', label='GT pos map'),
+            Patch(facecolor='purple', edgecolor='none', label='GT pos reproj'),
+            Patch(facecolor='royalblue', edgecolor='none', label='GT neg'),
             Patch(facecolor='dimgray', edgecolor='none', label='GT ign'),
-            Patch(facecolor='none', edgecolor='limegreen', label='TP'),
-            Patch(facecolor='none', edgecolor='red', label='FP'),
-            Patch(facecolor='none', edgecolor='lightgray', label='FP ignored'),
-            Patch(facecolor='none', edgecolor='black', label='FN'),
-            Patch(facecolor='none', edgecolor='blue', label='TN'),
+            # Patch(facecolor='none', edgecolor='forestgreen', label='TP'),
+            # Patch(facecolor='none', edgecolor='red', label='FP'),
+            # Patch(facecolor='none', edgecolor='lightgray', label='FP ignored'),
+            # Patch(facecolor='none', edgecolor='black', label='FN'),
+            # Patch(facecolor='none', edgecolor='royalblue', label='TN'),
         ]
         fig.legend(
             handles=legend_elements,
@@ -257,7 +259,7 @@ def make_gt_debug_figures(gt_, data_, n_pairs=2):
 
     return figs
 
-def make_gt_pos_figures(pred_, data_, n_pairs=2):
+def make_gt_pos_figures(pred_, data_, n_pairs=2, pos_th=None):
     """Return a list of per-pair GT positive figures."""
     if "0to1" in pred_.keys():
         pred_ = pred_["0to1"]
@@ -318,11 +320,11 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
             plot_matches(
                 map_kp0,
                 map_kp1,
-                color="limegreen",
+                color="forestgreen",
                 axes=axes[0],
-                a=0.7,
-                lw=1.0,
-                ps=2.5,
+                a=0.5,
+                lw=0.5,
+                ps=0.5,
             )
         if reproj_kp0.shape[0]:
             plot_matches(
@@ -330,9 +332,9 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
                 reproj_kp1,
                 color="purple",
                 axes=axes[0],
-                a=0.7,
-                lw=0.8,
-                ps=2.0,
+                a=0.5,
+                lw=0.5,
+                ps=0.5,
             )
 
         ov = overlap[i].item() if overlap is not None else float("nan")
@@ -342,22 +344,18 @@ def make_gt_pos_figures(pred_, data_, n_pairs=2):
         kp1_3d = int(val3D_mask1[i].sum()) if val3D_mask1 is not None else 0
         map_pos = int(kp0_map_mask.sum())
         reproj_pos = int(kp0_reproj_mask.sum())
-        fig.suptitle(
-            " | ".join(
-                [
-                    f"ov: {ov:.2f}",
-                    f"KP0 tot: {kp0_tot} KP0-3D: {kp0_3d}",
-                    f"KP1 tot: {kp1_tot} KP1-3D: {kp1_3d}",
-                    f"GT_POS map+reproj: {map_pos}+{reproj_pos}",
-                ]
-            ),
-            fontsize=8,
-            y=0.99,
-            va="bottom",
-        )
+        title_parts = [
+            f"ov: {ov:.2f}",
+            f"KP0 tot: {kp0_tot} KP0-3D: {kp0_3d}",
+            f"KP1 tot: {kp1_tot} KP1-3D: {kp1_3d}",
+            f"GT_POS map+reproj: {map_pos}+{reproj_pos}",
+        ]
+        if pos_th is not None:
+            title_parts.append(f"pos_th: {pos_th:g}")
+        fig.suptitle(" | ".join(title_parts), fontsize=8, y=0.99, va="bottom")
         fig.subplots_adjust(top=1.02)
         legend_elements = [
-            Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
+            Patch(facecolor='forestgreen', edgecolor='none', label='GT pos map'),
             Patch(facecolor='purple', edgecolor='none', label='GT pos reproj'),
         ]
         fig.legend(
