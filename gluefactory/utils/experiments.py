@@ -33,13 +33,13 @@ def verify_checkpoint_loading(checkpoint, model, logger, module_prefix="matcher"
 
     # Check overlap
     matched = loaded_params & model_params
-    logger.info(f"✓ Successfully loaded {len(matched)}/{len(model_params)} parameters")
+    logger.info(f"OK Successfully loaded {len(matched)}/{len(model_params)} parameters")
 
     # Check missing
     missing = model_params - loaded_params
     if missing:
         logger.warning(
-            f"⚠️  {len(missing)} parameters not in checkpoint (will be random):"
+            f" {len(missing)} parameters not in checkpoint (will be random):"
         )
         logger.warning(f"   Example: {list(missing)[:3]}")
 
@@ -62,9 +62,9 @@ def verify_checkpoint_loading(checkpoint, model, logger, module_prefix="matcher"
         )
         logger.info(f"{module_prefix.capitalize()} weights average magnitude: {avg_abs:.6f}")
         if avg_abs < 1e-6:
-            logger.error(f"❌ {module_prefix.capitalize()} weights appear to be all zeros!")
+            logger.error(f"{module_prefix.capitalize()} weights appear to be all zeros!")
     else:
-        logger.error(f"❌ No '{module_prefix}.' prefixed weights found in checkpoint!")
+        logger.error(f"No '{module_prefix}.' prefixed weights found in checkpoint!")
     
     return {
         "matched": len(matched),

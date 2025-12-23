@@ -8,8 +8,8 @@ from gluefactory.models import get_model
 from gluefactory.utils.experiments import verify_checkpoint_loading
 
 root_weights_path = Path("outputs/training")
-experiment_dir = "sift+lg_pretrained"
-weight_name = "sift_lightglue.pth"
+experiment_dir = "sp+lg_pretrained"
+weight_name = "pretrained_superpoint_lightglue.pth"
 
 weights_path = root_weights_path / experiment_dir / weight_name
 if not weights_path.exists():
@@ -54,8 +54,8 @@ model_conf = OmegaConf.create(
         "extractor": {"name": None},
         "matcher": {
             "name": "matchers.lightglue",
-            "input_dim": 128,
-            "add_scale_ori": True,
+            "input_dim": 256,
+            # "add_scale_ori": True,
         },
         "filter": {"name": None},
         "solver": {"name": None},

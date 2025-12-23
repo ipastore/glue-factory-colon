@@ -1,0 +1,59 @@
+data:
+    name: homographies
+    data_dir: endomapper/all_colmap_sequences
+    train_size: -1
+    val_size: -1
+    image_list: null  
+    batch_size: 8 #64
+    num_workers: 8 #14
+    #Endomapper
+    crop_vignette: True
+    vignette_crop_coords: [276, 1076, 206, 806]   # [x1, x2, y1, y2]; # width = 800, height = 600, aspect ≈ 4/3
+    homography:
+        difficulty: 0.7
+        max_angle: 45
+        patch_shape: [640,480] # 640x480 Original. See if we need to change it
+
+
+    photometric:
+        name: lg
+model:
+    name: two_view_pipeline
+    extractor:
+        name: extractors.superpoint_open
+        max_num_keypoints: 512
+        force_num_keypoints: True
+        nms_radius: 3
+        trainable: False
+        detection_threshold: 0.0015  #-1?
+    ground_truth:
+        name: matchers.homography_matcher
+        th_positive: 3
+        th_negative: 3
+    matcher:
+        name: matchers.lightglue
+        filter_threshold: 0.1
+        flash: false
+        checkpointed: true
+train:
+    seed: 0
+    epochs: 40
+    log_every_iter: 100
+    eval_every_iter: 500
+    lr: 1e-4
+    lr_schedule:
+        start: 20
+        type: exp
+        on_epoch: true
+        exp_div_10: 10
+    plot: [5, 'gluefactory.visualization.visualize_batch.make_match_figures']
+    load_experiment: sp+lg_pretrained           # nothing before  
+
+benchmarks:
+    hpatches:
+      eval:
+        estimator: opencv
+        ransac_th: 0.5
+      model:
+        extractor:
+          nms_radius: 0
