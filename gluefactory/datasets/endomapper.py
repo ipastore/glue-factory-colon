@@ -43,6 +43,10 @@ class Endomapper(BaseDataset):
         "val_split": "val_seqs_maps.txt",
         "val_num_per_scene": None,
         "val_pairs": None,
+        # Overfit (val-like) split
+        "overfit_split": None,
+        "overfit_num_per_scene": None,
+        "overfit_pairs": None,
         # Test
         "test_split": "test_seqs_maps.txt",
         "test_num_per_scene": None,

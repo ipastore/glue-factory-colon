@@ -410,9 +410,16 @@ def training(rank, conf, output_dir, args):
     else:
         train_loader = dataset.get_data_loader("train", distributed=args.distributed)
         val_loader = val_dataset.get_data_loader("val")
+    overfit_loader = None
+    if not args.overfit:
+        overfit_split = val_dataset.conf.get("overfit_split", None)
+        if overfit_split is not None:
+            overfit_loader = val_dataset.get_data_loader("overfit")
     if rank == 0:
         logger.info(f"Training loader has {len(train_loader)} batches")
         logger.info(f"Validation loader has {len(val_loader)} batches")
+        if overfit_loader is not None:
+            logger.info(f"Overfit loader has {len(overfit_loader)} batches")
 
     # interrupts are caught and delayed for graceful termination
     def sigint_handler(signal, frame):
@@ -436,7 +443,9 @@ def training(rank, conf, output_dir, args):
         in conf.train.plot[1]
     )
     plot_ids_static = None
+    plot_ids_overfit = None
     baseline_preds_cache = None
+    baseline_preds_overfit_cache = None
     baseline_ready = False
     if requires_oob_plot:
         n, _ = conf.train.plot
@@ -444,7 +453,7 @@ def training(rank, conf, output_dir, args):
             len(val_loader), min(len(val_loader), n), replace=False
         )
         if rank == 0:
-            logger.info("Running initial eval to cache OOB predictions for plotting.")
+            logger.info("Running initial val eval to cache OOB predictions for plotting.")
             baseline_preds_cache = {}
             baseline_conf = copy.deepcopy(conf.train)
             baseline_conf.plot = None
@@ -461,6 +470,24 @@ def training(rank, conf, output_dir, args):
                     plot_ids=plot_ids_static,
                     baseline_store=baseline_preds_cache,
                 )
+            if overfit_loader is not None:
+                logger.info("Running initial overfit eval to cache OOB predictions for plotting.")
+                plot_ids_overfit = np.random.choice(
+                    len(overfit_loader), min(len(overfit_loader), n), replace=False
+                )
+                baseline_preds_overfit_cache = {}
+                with fork_rng(seed=conf.train.seed):
+                    do_evaluation(
+                        model,
+                        overfit_loader,
+                        device,
+                        loss_fn,
+                        baseline_conf,
+                        rank,
+                        pbar=(rank == 0),
+                        plot_ids=plot_ids_overfit,
+                        baseline_store=baseline_preds_overfit_cache,
+                    )
         baseline_ready = True
 
     if args.compile:
@@ -603,6 +630,8 @@ def training(rank, conf, output_dir, args):
                 )
             _log_loader_stats("Train", train_loader)
             _log_loader_stats("Val", val_loader)
+            if overfit_loader is not None:
+                _log_loader_stats("Overfit", overfit_loader)
         for it, data in enumerate(train_loader):
             tot_it = (len(train_loader) * epoch + it) * (
                 args.n_gpus if args.distributed else 1
@@ -743,7 +772,7 @@ def training(rank, conf, output_dir, args):
                     logger.info(f'[Validation] {{{", ".join(str_results)}}}')
                     write_dict_summaries(writer, "val", results, tot_n_samples)
                     write_dict_summaries(writer, "val", pr_metrics, tot_n_samples)
-                    write_image_summaries(writer, "figures", figures, tot_n_samples)
+                    write_image_summaries(writer, "figures_val", figures, tot_n_samples)
                     if conf.train.save_eval_figs:
                         save_dir = output_dir / "eval_figs"
                         save_eval_figures(
@@ -767,6 +796,43 @@ def training(rank, conf, output_dir, args):
                             cp_name="checkpoint_best.tar",
                         )
                         logger.info(f"New best val: {conf.train.best_key}={best_eval}")
+                if overfit_loader is not None:
+                    with fork_rng(seed=conf.train.seed):
+                        overfit_results, overfit_pr_metrics, overfit_figures = do_evaluation(
+                            model,
+                            overfit_loader,
+                            device,
+                            loss_fn,
+                            conf.train,
+                            rank,
+                            pbar=(rank == 0),
+                            baseline_preds=baseline_preds_overfit_cache,
+                            plot_ids=plot_ids_overfit,
+                            plot_kwargs=(
+                                {"epoch_idx": epoch}
+                                if conf.train.plot is not None
+                                else None
+                            ),
+                        )
+                    if rank == 0:
+                        str_overfit_results = [
+                            f"{k} {v:.3E}"
+                            for k, v in overfit_results.items()
+                            if isinstance(v, float)
+                        ]
+                        logger.info(f'[Overfit] {{{", ".join(str_overfit_results)}}}')
+                        write_dict_summaries(
+                            writer, "overfit", overfit_results, tot_n_samples
+                        )
+                        write_dict_summaries(
+                            writer, "overfit", overfit_pr_metrics, tot_n_samples
+                        )
+                        write_image_summaries(
+                            writer,
+                            "figures_overfit",
+                            overfit_figures,
+                            tot_n_samples,
+                        )
                 torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if (tot_it % conf.train.save_every_iter == 0 and tot_it > 0) and rank == 0:

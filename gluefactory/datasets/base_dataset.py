@@ -120,6 +120,7 @@ class BaseDataset(metaclass=ABCMeta):
         "train_batch_size": "???",
         "val_batch_size": "???",
         "test_batch_size": "???",
+        "overfit_batch_size": "???",
         "shuffle_training": True,
         "batch_size": 1,
         "num_threads": 1,
@@ -154,7 +155,7 @@ class BaseDataset(metaclass=ABCMeta):
 
     def get_data_loader(self, split, shuffle=None, pinned=False, distributed=False):
         """Return a data loader for a given split."""
-        assert split in ["train", "val", "test"]
+        assert split in ["train", "val", "test", "overfit"]
         dataset = self.get_dataset(split)
         try:
             batch_size = self.conf[split + "_batch_size"]
