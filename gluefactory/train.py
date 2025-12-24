@@ -24,6 +24,7 @@ from . import __module_name__, logger, settings
 from .datasets import get_dataset
 from .eval import run_benchmark
 from .models import get_model
+from .models.utils.metrics import matcher_metrics
 from .utils.experiments import get_best_checkpoint, get_last_checkpoint, save_experiment, verify_checkpoint_loading
 from .utils.stdout_capturing import capture_outputs
 from .utils.tensor import batch_to_device
@@ -73,6 +74,8 @@ default_train_conf = {
     "plot": None,
     "submodules": [],
     "save_eval_figs": False,  # persist evaluation figures to disk
+    "log_val_metrics": False,
+    "log_overfit_metrics": False,
 }
 default_train_conf = OmegaConf.create(default_train_conf)
 
@@ -91,6 +94,8 @@ def do_evaluation(
     baseline_preds=None,
     baseline_store=None,
     plot_kwargs=None,
+    log_metrics_path=None,
+    log_metrics_step=None,
 ):
     model.eval()
     if baseline_model is not None:
@@ -112,12 +117,22 @@ def do_evaluation(
         plot_requires_oob = (
             "visualize_compare_lgoob.make_compare_lg_oob_figures" in plot_fn
         )
-    for i, data in enumerate(
-        tqdm(loader, desc="Evaluation", ascii=True, disable=not pbar)
-    ):
-        data = batch_to_device(data, device, non_blocking=True)
-        with torch.no_grad():
-            pred = model(data)
+    log_file = None
+    if log_metrics_path is not None and rank == 0:
+        log_metrics_path = Path(log_metrics_path)
+        write_header = not log_metrics_path.exists() or log_metrics_path.stat().st_size == 0
+        log_file = log_metrics_path.open("a", encoding="ascii")
+        if write_header:
+            log_file.write(
+                "step\tindex\tname\toverlap\tprecision\trecall\taccuracy\tap\n"
+            )
+    try:
+        for i, data in enumerate(
+            tqdm(loader, desc="Evaluation", ascii=True, disable=not pbar)
+        ):
+            data = batch_to_device(data, device, non_blocking=True)
+            with torch.no_grad():
+                pred = model(data)
             oob_pred = None
             if baseline_store is not None and i in list(plot_ids):
                 baseline_store[i] = batch_to_device(pred, "cpu", non_blocking=False)
@@ -151,6 +166,39 @@ def do_evaluation(
                     figures.extend(plot_result)
                 else:
                     figures.append(plot_result)
+            if log_file is not None:
+                gt_matches0 = pred.get("gt_matches0", data.get("gt_matches0"))
+                overlap_vals = data.get("overlap_0to1")
+                if gt_matches0 is not None and "matching_scores0" in pred:
+                    per_item_metrics = matcher_metrics(
+                        pred, {"gt_matches0": gt_matches0}
+                    )
+                    names = data.get("names")
+                    if names is None:
+                        names = [f"{i}_{j}" for j in range(gt_matches0.shape[0])]
+                    elif torch.is_tensor(names):
+                        names = (
+                            names.tolist()
+                            if names.ndim > 0
+                            else [names.item()] * gt_matches0.shape[0]
+                        )
+                    elif not isinstance(names, (list, tuple)):
+                        names = [names] * gt_matches0.shape[0]
+                    for j in range(gt_matches0.shape[0]):
+                        name = names[j] if j < len(names) else names[0]
+                        overlap = (
+                            overlap_vals[j].item()
+                            if overlap_vals is not None
+                            else float("nan")
+                        )
+                        line = (
+                            f"{log_metrics_step}\t{i}_{j}\t{name}\t{overlap:.2f}\t"
+                            f"{per_item_metrics['match_precision'][j].item():.6f}\t"
+                            f"{per_item_metrics['match_recall'][j].item():.6f}\t"
+                            f"{per_item_metrics['accuracy'][j].item():.6f}\t"
+                            f"{per_item_metrics['average_precision'][j].item():.6f}\n"
+                        )
+                        log_file.write(line)
             # add PR curves
             for k, v in conf.pr_curves.items():
                 pr_metrics[k].update(
@@ -159,22 +207,25 @@ def do_evaluation(
                     mask=pred[v["mask"]] if "mask" in v.keys() else None,
                 )
             del pred, data
-        numbers = {**metrics, **{"loss/" + k: v for k, v in losses.items()}}
-        for k, v in numbers.items():
-            if k not in results:
-                results[k] = AverageMetric()
+            numbers = {**metrics, **{"loss/" + k: v for k, v in losses.items()}}
+            for k, v in numbers.items():
+                if k not in results:
+                    results[k] = AverageMetric()
+                    if k in conf.median_metrics:
+                        results[k + "_median"] = MedianMetric()
+                    if k in conf.recall_metrics.keys():
+                        q = conf.recall_metrics[k]
+                        results[k + f"_recall{int(q)}"] = RecallMetric(q)
+                results[k].update(v)
                 if k in conf.median_metrics:
-                    results[k + "_median"] = MedianMetric()
+                    results[k + "_median"].update(v)
                 if k in conf.recall_metrics.keys():
                     q = conf.recall_metrics[k]
-                    results[k + f"_recall{int(q)}"] = RecallMetric(q)
-            results[k].update(v)
-            if k in conf.median_metrics:
-                results[k + "_median"].update(v)
-            if k in conf.recall_metrics.keys():
-                q = conf.recall_metrics[k]
-                results[k + f"_recall{int(q)}"].update(v)
-        del numbers
+                    results[k + f"_recall{int(q)}"].update(v)
+            del numbers
+    finally:
+        if log_file is not None:
+            log_file.close()
     results = {k: results[k].compute() for k in results}
     pr_metrics = {k: v.compute() for k, v in pr_metrics.items()}
     return results, pr_metrics, figures
@@ -761,6 +812,12 @@ def training(rank, conf, output_dir, args):
                         plot_kwargs=(
                             {"epoch_idx": epoch} if conf.train.plot is not None else None
                         ),
+                        log_metrics_path=(
+                            output_dir / "val_metrics.txt"
+                            if conf.train.log_val_metrics
+                            else None
+                        ),
+                        log_metrics_step=tot_n_samples,
                     )
 
                 if rank == 0:
@@ -813,6 +870,12 @@ def training(rank, conf, output_dir, args):
                                 if conf.train.plot is not None
                                 else None
                             ),
+                            log_metrics_path=(
+                                output_dir / "overfit_metrics.txt"
+                                if conf.train.log_overfit_metrics
+                                else None
+                            ),
+                            log_metrics_step=tot_n_samples,
                         )
                     if rank == 0:
                         str_overfit_results = [
