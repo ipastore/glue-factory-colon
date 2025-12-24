@@ -46,6 +46,12 @@ def make_compare_lg_oob_figures(
         gt = batch_to_device(gt, "cpu", non_blocking=False)
 
     gt_matches0 = gt["matches0"] if gt and "matches0" in gt else pred_epoch["gt_matches0"]
+    overlap = data.get("overlap_0to1")
+    map_pos0_mask = gt.get("mask_pos_3d_map0") if gt else None
+    reproj_pos0_mask = gt.get("mask_pos_reproj0") if gt else None
+    pad_mask0 = data.get("keypoint_scores0")
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
 
     view0, view1 = data["view0"], data["view1"]
     n_pairs = min(n_pairs, view0["image"].shape[0])
@@ -101,7 +107,20 @@ def make_compare_lg_oob_figures(
             name = names if names is not None else f"pair_{i}"
         name = _clean_name(name)
 
-        axes[0][0].set_title(f"{name} | LG_epoch{epoch_idx}", fontsize=8, loc="left")
+        ov = overlap[i].item() if overlap is not None else float("nan")
+        info_parts = [f"ov: {ov:.2f}"]
+        if map_pos0_mask is not None and reproj_pos0_mask is not None:
+            map_mask = map_pos0_mask[i].to(torch.bool)
+            reproj_mask = reproj_pos0_mask[i].to(torch.bool)
+            if pad_mask0 is not None:
+                map_mask = map_mask & pad_mask0[i]
+                reproj_mask = (reproj_mask & pad_mask0[i]) & ~map_mask
+            info_parts.append(f"GT: {int(map_mask.sum())}+{int(reproj_mask.sum())}")
+        info_suffix = " | ".join(info_parts)
+
+        axes[0][0].set_title(
+            f"{name} | epoch{epoch_idx} | {info_suffix}", fontsize=8, loc="left"
+        )
         axes[0][1].set_title(
             (
                 f"P:{metrics_epoch['match_precision'][i]:.2f} "
@@ -112,7 +131,7 @@ def make_compare_lg_oob_figures(
             fontsize=8,
             loc="right",
         )
-        axes[1][0].set_title(f"{name} | LG_OOB", fontsize=8, loc="left")
+        axes[1][0].set_title(f"{name} | OOB | {info_suffix}", fontsize=8, loc="left")
         axes[1][1].set_title(
             (
                 f"P:{metrics_oob['match_precision'][i]:.2f} "

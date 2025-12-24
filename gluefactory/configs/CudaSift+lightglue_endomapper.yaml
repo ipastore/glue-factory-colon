@@ -34,7 +34,7 @@ model:
         th_positive: 3
         th_negative: 15
         th_epi: null
-        save_fig_when_debug: true
+        save_fig_when_debug: false
     allow_no_extract: True
 train:
     seed: 0
@@ -49,7 +49,7 @@ train:
         exp_div_10: 10
     dataset_callback_fn: sample_new_items
     plot: [5, 'gluefactory.visualization.visualize_compare_lgoob.make_compare_lg_oob_figures']
-    save_eval_figs: false
+    save_eval_figs: true
     keep_last_checkpoints: 50,  # keep only the last X checkpoints
     load_experiment: sift+lg_pretrained           # nothing before  
 

@@ -1,3 +1,2 @@
-Seq_024_a
-Seq_024_b
-Seq_024_c
+Seq_027_c
+Seq_035_e
