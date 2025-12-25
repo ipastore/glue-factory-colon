@@ -8,7 +8,10 @@ from ...geometry.gt_generation import (
 )
 from ... import settings
 from ..base_model import BaseModel
-from ...visualization.gt_visualize_matches import make_gt_debug_figures, make_gt_pos_figures
+from ...visualization.gt_visualize_matches import (
+    make_gt_pos_neg_ign_figs,
+    make_gt_pos_figs,
+)
 
 # Hacky workaround for torch.amp.custom_fwd to support older versions of PyTorch.
 AMP_CUSTOM_FWD_F32 = (
@@ -107,7 +110,7 @@ class SparseDepthMatcher(BaseModel):
         if self.conf.save_fig_when_debug:
             if "image" in data["view0"] and "image" in data["view1"]:
 
-                figs = make_gt_debug_figures(
+                figs = make_gt_pos_neg_ign_figs(
                     gt,
                     data,
                     n_pairs=data["keypoints0"].shape[0],
@@ -124,7 +127,7 @@ class SparseDepthMatcher(BaseModel):
                 save_dir = base_dir / "seq_map_gt_viz"
                 _save_figures(figs, names, save_dir)
 
-                gt_pos_figs = make_gt_pos_figures(
+                gt_pos_figs = make_gt_pos_figs(
                     gt,
                     data,
                     n_pairs=data["keypoints0"].shape[0],

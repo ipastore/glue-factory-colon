@@ -43,6 +43,18 @@ train:
     epochs: 50
     log_every_iter: 100
     eval_every_iter: 100 #1000
+
+    # Write into tb gt figures
+    log_gt_pos_val_once: true
+    log_gt_pos_overfit_once: true
+    log_gt_pos_neg_ign_val_once: true
+    log_gt_pos_neg_ign_overfit_once: true
+
+    # Log into txt metrics for all val and overfit datasets
+    log_val_metrics: true
+    log_overfit_metrics: true
+    
+
     lr: 1e-4
     lr_schedule:
         start: 30
@@ -51,11 +63,10 @@ train:
         exp_div_10: 10
     dataset_callback_fn: sample_new_items
     plot: [5, 'gluefactory.visualization.visualize_compare_lgoob.make_compare_lg_oob_figures']
-    save_eval_figs: true
+    save_eval_figs: false
     keep_last_checkpoints: 50  # keep only the last X checkpoints
     load_experiment: sift+lg_pretrained           # nothing before
-    log_val_metrics: true
-    log_overfit_metrics: true  
+
 
 benchmarks:
     megadepth1500:
