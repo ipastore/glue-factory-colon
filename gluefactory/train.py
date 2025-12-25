@@ -335,7 +335,9 @@ def write_image_summaries(writer, name, figures, step):
             writer.add_figure(f"{name}/{k}", fig, step)
 
 
-def generate_gt_figures(model, batch, device, fig_fn, pos_th=None, neg_th=None):
+def generate_gt_figures_for_batch(
+    model, batch, device, fig_fn, n_pairs=None, pos_th=None, neg_th=None
+):
     batch = batch_to_device(batch, device, non_blocking=True)
     if "image" not in batch["view0"] or "image" not in batch["view1"]:
         return []
@@ -357,7 +359,9 @@ def generate_gt_figures(model, batch, device, fig_fn, pos_th=None, neg_th=None):
             "keypoint_scores0": view0_cache.get("keypoint_scores"),
             "keypoint_scores1": view1_cache.get("keypoint_scores"),
         }
-    fig_kwargs = {"n_pairs": batch["keypoints0"].shape[0]}
+    fig_kwargs = {}
+    if n_pairs is not None:
+        fig_kwargs["n_pairs"] = min(n_pairs, batch["keypoints0"].shape[0])
     if fig_fn is make_gt_pos_neg_ign_figs:
         fig_kwargs["pos_th"] = pos_th
         fig_kwargs["neg_th"] = neg_th
@@ -395,15 +399,38 @@ def log_gt_pos_figures(writer, figures, save_dir, tag_prefix, step, names=None):
         writer.add_image(tag, img, step, dataformats="HWC")
 
 
-def collect_batches_by_ids(loader, ids):
-    ids = set(ids)
-    batches = []
+def generate_gt_figures(
+    model,
+    loader,
+    device,
+    fig_fn,
+    plot_ids,
+    n,
+    pos_th=None,
+    neg_th=None,
+):
+    plot_ids = (
+        plot_ids
+        if len(plot_ids)
+        else np.random.choice(len(loader), min(len(loader), n), replace=False)
+    )
+    plot_id_set = set(plot_ids)
+    results = []
     for idx, batch in enumerate(loader):
-        if idx in ids:
-            batches.append((idx, batch))
-            if len(batches) == len(ids):
-                break
-    return batches
+        if idx not in plot_id_set:
+            continue
+        names = batch.get("names")
+        if torch.is_tensor(names):
+            names = names.tolist() if names.ndim > 0 else [names.item()]
+        elif names is not None and not isinstance(names, (list, tuple)):
+            names = [names]
+        figs = generate_gt_figures_for_batch(
+            model, batch, device, fig_fn, pos_th=pos_th, neg_th=neg_th
+        )
+        results.append((names, figs))
+        if len(results) == len(plot_id_set):
+            break
+    return results
 
 
 def save_eval_figures(figures, save_dir: Path, prefix: str):
@@ -607,19 +634,16 @@ def training(rank, conf, output_dir, args):
                     plot_ids=plot_ids_static,
                     baseline_store=baseline_preds_cache,
                 )
-            val_batches = collect_batches_by_ids(val_loader, plot_ids_static)
             if conf.train.log_gt_pos_val_once and not gt_pos_val_logged:
-                for batch_idx, val_batch in val_batches:
-                    names = val_batch.get("names")
-                    if torch.is_tensor(names):
-                        names = (
-                            names.tolist() if names.ndim > 0 else [names.item()]
-                        )
-                    elif names is not None and not isinstance(names, (list, tuple)):
-                        names = [names]
-                    gt_pos_figs = generate_gt_figures(
-                        model, val_batch, device, make_gt_pos_figs
-                    )
+                val_gt = generate_gt_figures(
+                    model,
+                    val_loader,
+                    device,
+                    make_gt_pos_figs,
+                    plot_ids_static,
+                    n,
+                )
+                for names, gt_pos_figs in val_gt:
                     log_gt_pos_figures(
                         writer,
                         gt_pos_figs,
@@ -633,22 +657,17 @@ def training(rank, conf, output_dir, args):
                 conf.train.log_gt_pos_neg_ign_val_once
                 and not gt_pos_neg_ign_val_logged
             ):
-                for batch_idx, val_batch in val_batches:
-                    names = val_batch.get("names")
-                    if torch.is_tensor(names):
-                        names = (
-                            names.tolist() if names.ndim > 0 else [names.item()]
-                        )
-                    elif names is not None and not isinstance(names, (list, tuple)):
-                        names = [names]
-                    gt_pos_neg_ign_figs = generate_gt_figures(
-                        model,
-                        val_batch,
-                        device,
-                        make_gt_pos_neg_ign_figs,
-                        pos_th=pos_th,
-                        neg_th=neg_th,
-                    )
+                val_gt = generate_gt_figures(
+                    model,
+                    val_loader,
+                    device,
+                    make_gt_pos_neg_ign_figs,
+                    plot_ids_static,
+                    n,
+                    pos_th=pos_th,
+                    neg_th=neg_th,
+                )
+                for names, gt_pos_neg_ign_figs in val_gt:
                     log_gt_pos_figures(
                         writer,
                         gt_pos_neg_ign_figs,
@@ -676,21 +695,16 @@ def training(rank, conf, output_dir, args):
                         plot_ids=plot_ids_overfit,
                         baseline_store=baseline_preds_overfit_cache,
                     )
-                overfit_batches = collect_batches_by_ids(
-                    overfit_loader, plot_ids_overfit
-                )
                 if conf.train.log_gt_pos_overfit_once and not gt_pos_overfit_logged:
-                    for batch_idx, overfit_batch in overfit_batches:
-                        names = overfit_batch.get("names")
-                        if torch.is_tensor(names):
-                            names = (
-                                names.tolist() if names.ndim > 0 else [names.item()]
-                            )
-                        elif names is not None and not isinstance(names, (list, tuple)):
-                            names = [names]
-                        gt_pos_figs = generate_gt_figures(
-                            model, overfit_batch, device, make_gt_pos_figs
-                        )
+                    overfit_gt = generate_gt_figures(
+                        model,
+                        overfit_loader,
+                        device,
+                        make_gt_pos_figs,
+                        plot_ids_overfit,
+                        n,
+                    )
+                    for names, gt_pos_figs in overfit_gt:
                         log_gt_pos_figures(
                             writer,
                             gt_pos_figs,
@@ -704,22 +718,17 @@ def training(rank, conf, output_dir, args):
                     conf.train.log_gt_pos_neg_ign_overfit_once
                     and not gt_pos_neg_ign_overfit_logged
                 ):
-                    for batch_idx, overfit_batch in overfit_batches:
-                        names = overfit_batch.get("names")
-                        if torch.is_tensor(names):
-                            names = (
-                                names.tolist() if names.ndim > 0 else [names.item()]
-                            )
-                        elif names is not None and not isinstance(names, (list, tuple)):
-                            names = [names]
-                        gt_pos_neg_ign_figs = generate_gt_figures(
-                            model,
-                            overfit_batch,
-                            device,
-                            make_gt_pos_neg_ign_figs,
-                            pos_th=pos_th,
-                            neg_th=neg_th,
-                        )
+                    overfit_gt = generate_gt_figures(
+                        model,
+                        overfit_loader,
+                        device,
+                        make_gt_pos_neg_ign_figs,
+                        plot_ids_overfit,
+                        n,
+                        pos_th=pos_th,
+                        neg_th=neg_th,
+                    )
+                    for names, gt_pos_neg_ign_figs in overfit_gt:
                         log_gt_pos_figures(
                             writer,
                             gt_pos_neg_ign_figs,
