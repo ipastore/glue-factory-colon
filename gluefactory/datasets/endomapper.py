@@ -235,6 +235,23 @@ class _PairDataset(torch.utils.data.Dataset):
                         pairs_all.append(pairs_bin)
                     # Skip bins with too few samples
                     has_enough_samples = [len(p) >= num_per_bin * 2 for p in pairs_all]
+                    if not any(has_enough_samples):
+                        logger.warning(
+                            "Skipping %s: no bins with enough pairs for sampling.",
+                            seq_map,
+                        )
+                        continue
+                    if not all(has_enough_samples):
+                        used_bins = [
+                            str(i + 1)
+                            for i, keep in enumerate(has_enough_samples)
+                            if keep
+                        ]
+                        logger.warning(
+                            "Sampling %s with bins %s.",
+                            seq_map,
+                            ",".join(used_bins),
+                        )
                     num_per_bin_2 = num_pos // max(1, sum(has_enough_samples))
                     pairs = []
                     for pairs_bin, keep in zip(pairs_all, has_enough_samples):

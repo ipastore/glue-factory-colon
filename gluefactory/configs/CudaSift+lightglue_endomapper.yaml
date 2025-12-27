@@ -1,16 +1,18 @@
 data:
     name: endomapper
-    data_dir: Endomapper_CUDASIFT_DIC25
-    train_split: train_seqs_DEBUG.txt
-    train_num_per_scene: null  #300
-    val_split: val_seqs_DEBUG.txt
+    data_dir: Endomapper_CUDASIFT_DIC25_NoKFCull
+    train_split: train_seqs.txt
+    train_num_per_scene: 300  #300
+    val_split: val_seqs_NoKFCull.txt
+    val_num_per_scene: 8 
     val_pairs: null
-    overfit_split: overfit_seqs_DEBUG.txt
+    overfit_split: overfit_seqs_NoKFCull.txt
     overfit_pairs: null
-    min_overlap: 0.1
+    overfit_num_per_scene: 8 
+    min_overlap: 0.0
     max_overlap: 0.7
-    num_overlap_bins: 3
-    batch_size: 2 #32
+    num_overlap_bins: 4
+    batch_size: 32 #32
     num_workers: 8 #14
     max_num_features: 1024
     min_images_per_map: 0 
