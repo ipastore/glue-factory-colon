@@ -117,7 +117,11 @@ def do_evaluation(
     plot_fn = None
     plot_requires_oob = False
     if conf.plot is not None:
-        n, plot_fn = conf.plot
+        if len(conf.plot) == 3:
+            n, plot_fn, n_pairs = conf.plot
+        else:
+            n, plot_fn = conf.plot
+            n_pairs = None
         plot_ids = (
             plot_ids
             if len(plot_ids)
@@ -159,6 +163,8 @@ def do_evaluation(
                 gt_values = {
                     k[len("gt_") :]: v for k, v in pred.items() if k.startswith("gt_")
                 }
+                if n_pairs is not None:
+                    plot_kwargs = {**(plot_kwargs or {}), "n_pairs": n_pairs}
                 plot_callable = locate(plot_fn)
                 plot_result = (
                     plot_callable(
@@ -612,7 +618,10 @@ def training(rank, conf, output_dir, args):
     if requires_oob_plot:
         pos_th = conf.model.ground_truth.get("th_positive", None)
         neg_th = conf.model.ground_truth.get("th_negative", None)
-        n, _ = conf.train.plot
+        if len(conf.train.plot) == 3:
+            n, _, _ = conf.train.plot
+        else:
+            n, _ = conf.train.plot
         plot_ids_static = np.random.choice(
             len(val_loader), min(len(val_loader), n), replace=False
         )
