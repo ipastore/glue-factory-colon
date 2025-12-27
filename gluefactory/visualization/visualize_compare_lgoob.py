@@ -6,6 +6,8 @@ import torch
 
 from ..models.utils.metrics import matcher_metrics
 from ..utils.tensor import batch_to_device
+import matplotlib.colors as mcolors
+
 from .viz2d import cm_RdGn, plot_image_grid, plot_keypoints, plot_matches
 
 
@@ -32,6 +34,7 @@ def make_compare_lg_oob_figures(
     gt: Optional[Dict] = None,
     n_pairs: int = 2,
     epoch_idx: Optional[int] = None,
+    plot_ignored_predictions: bool = False,
 ):
     """Plot LG_epochX (top) vs LG_OOB (bottom) with matches colored by correctness."""
     pred_epoch = _unwrap_pred(pred_epoch)
@@ -82,11 +85,25 @@ def make_compare_lg_oob_figures(
                 (kp0_oob[i], kp1_oob[i], pred_oob["matches0"][i]),
             ]
         ):
-            valid = (matches > -1) & (gt_matches0[i] >= -1)
+            if plot_ignored_predictions:
+                valid = (matches > -1) & (gt_matches0[i] >= -2)
+            else:
+                valid = (matches > -1) & (gt_matches0[i] >= -1)
             kpm0 = kp0[valid]
             kpm1 = kp1[matches[valid]]
             correct = gt_matches0[i][valid] == matches[valid]
             colors = cm_RdGn(correct.float()).tolist()
+            if plot_ignored_predictions:
+                ignored = gt_matches0[i][valid] == -2
+                ignored_idx = torch.nonzero(ignored, as_tuple=False).squeeze(-1)
+                if ignored_idx.numel() > 0:
+                    ignored_rgba = mcolors.to_rgba("lightgray")
+                    for idx in (
+                        ignored_idx.tolist()
+                        if ignored_idx.ndim > 0
+                        else [ignored_idx.item()]
+                    ):
+                        colors[idx] = ignored_rgba
             plot_keypoints([kp0, kp1], axes=axes[row], colors="royalblue")
             plot_matches(
                 kpm0,

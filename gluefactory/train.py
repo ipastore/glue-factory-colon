@@ -77,6 +77,7 @@ default_train_conf = {
     "clip_grad": None,
     "pr_curves": {},
     "plot": None,
+    "plot_ignored_predictions": False,
     "submodules": [],
     "save_eval_figs": False,  # persist evaluation figures to disk
     "log_val_metrics": False,
@@ -1041,7 +1042,14 @@ def training(rank, conf, output_dir, args):
                         baseline_preds=baseline_preds_cache,
                         plot_ids=plot_ids_static,
                         plot_kwargs=(
-                            {"epoch_idx": epoch} if conf.train.plot is not None else None
+                            (
+                                {
+                                    "epoch_idx": epoch,
+                                    "plot_ignored_predictions": conf.train.plot_ignored_predictions,
+                                }
+                                if conf.train.plot is not None
+                                else None
+                            )
                         ),
                         log_metrics_path=(
                             output_dir / "val_metrics.txt"
@@ -1097,9 +1105,14 @@ def training(rank, conf, output_dir, args):
                             baseline_preds=baseline_preds_overfit_cache,
                             plot_ids=plot_ids_overfit,
                             plot_kwargs=(
-                                {"epoch_idx": epoch}
-                                if conf.train.plot is not None
-                                else None
+                                (
+                                    {
+                                        "epoch_idx": epoch,
+                                        "plot_ignored_predictions": conf.train.plot_ignored_predictions,
+                                    }
+                                    if conf.train.plot is not None
+                                    else None
+                                )
                             ),
                             log_metrics_path=(
                                 output_dir / "overfit_metrics.txt"
@@ -1142,7 +1155,14 @@ def training(rank, conf, output_dir, args):
                         baseline_preds=baseline_preds_cache,
                         plot_ids=plot_ids_static,
                         plot_kwargs=(
-                            {"epoch_idx": epoch} if conf.train.plot is not None else None
+                            (
+                                {
+                                    "epoch_idx": epoch,
+                                    "plot_ignored_predictions": conf.train.plot_ignored_predictions,
+                                }
+                                if conf.train.plot is not None
+                                else None
+                            )
                         ),
                     )
                     best_eval = results[conf.train.best_key]
