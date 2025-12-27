@@ -623,7 +623,7 @@ def training(rank, conf, output_dir, args):
             baseline_conf.plot = None
             baseline_conf.save_eval_figs = False
             with fork_rng(seed=conf.train.seed):
-                do_evaluation(
+                baseline_results, baseline_pr_metrics, _ = do_evaluation(
                     model,
                     val_loader,
                     device,
@@ -634,6 +634,9 @@ def training(rank, conf, output_dir, args):
                     plot_ids=plot_ids_static,
                     baseline_store=baseline_preds_cache,
                 )
+            if rank == 0:
+                write_dict_summaries(writer, "val", baseline_results, 0)
+                write_dict_summaries(writer, "val", baseline_pr_metrics, 0)
             if conf.train.log_gt_pos_val_once and not gt_pos_val_logged:
                 val_gt = generate_gt_figures(
                     model,
@@ -684,7 +687,11 @@ def training(rank, conf, output_dir, args):
                 )
                 baseline_preds_overfit_cache = {}
                 with fork_rng(seed=conf.train.seed):
-                    do_evaluation(
+                    (
+                        baseline_overfit_results,
+                        baseline_overfit_pr_metrics,
+                        _,
+                    ) = do_evaluation(
                         model,
                         overfit_loader,
                         device,
@@ -694,6 +701,11 @@ def training(rank, conf, output_dir, args):
                         pbar=(rank == 0),
                         plot_ids=plot_ids_overfit,
                         baseline_store=baseline_preds_overfit_cache,
+                    )
+                if rank == 0:
+                    write_dict_summaries(writer, "overfit", baseline_overfit_results, 0)
+                    write_dict_summaries(
+                        writer, "overfit", baseline_overfit_pr_metrics, 0
                     )
                 if conf.train.log_gt_pos_overfit_once and not gt_pos_overfit_logged:
                     overfit_gt = generate_gt_figures(
