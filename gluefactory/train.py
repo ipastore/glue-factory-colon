@@ -412,6 +412,7 @@ def generate_gt_figures(
     fig_fn,
     plot_ids,
     n,
+    n_pairs=None,
     pos_th=None,
     neg_th=None,
 ):
@@ -431,7 +432,13 @@ def generate_gt_figures(
         elif names is not None and not isinstance(names, (list, tuple)):
             names = [names]
         figs = generate_gt_figures_for_batch(
-            model, batch, device, fig_fn, pos_th=pos_th, neg_th=neg_th
+            model,
+            batch,
+            device,
+            fig_fn,
+            n_pairs=n_pairs,
+            pos_th=pos_th,
+            neg_th=neg_th,
         )
         results.append((names, figs))
         if len(results) == len(plot_id_set):
@@ -619,9 +626,10 @@ def training(rank, conf, output_dir, args):
         pos_th = conf.model.ground_truth.get("th_positive", None)
         neg_th = conf.model.ground_truth.get("th_negative", None)
         if len(conf.train.plot) == 3:
-            n, _, _ = conf.train.plot
+            n, _, plot_n_pairs = conf.train.plot
         else:
             n, _ = conf.train.plot
+            plot_n_pairs = None
         plot_ids_static = np.random.choice(
             len(val_loader), min(len(val_loader), n), replace=False
         )
@@ -654,6 +662,7 @@ def training(rank, conf, output_dir, args):
                     make_gt_pos_figs,
                     plot_ids_static,
                     n,
+                    n_pairs=plot_n_pairs,
                 )
                 for names, gt_pos_figs in val_gt:
                     log_gt_pos_figures(
@@ -676,6 +685,7 @@ def training(rank, conf, output_dir, args):
                     make_gt_pos_neg_ign_figs,
                     plot_ids_static,
                     n,
+                    n_pairs=plot_n_pairs,
                     pos_th=pos_th,
                     neg_th=neg_th,
                 )
@@ -724,6 +734,7 @@ def training(rank, conf, output_dir, args):
                         make_gt_pos_figs,
                         plot_ids_overfit,
                         n,
+                        n_pairs=plot_n_pairs,
                     )
                     for names, gt_pos_figs in overfit_gt:
                         log_gt_pos_figures(
@@ -746,6 +757,7 @@ def training(rank, conf, output_dir, args):
                         make_gt_pos_neg_ign_figs,
                         plot_ids_overfit,
                         n,
+                        n_pairs=plot_n_pairs,
                         pos_th=pos_th,
                         neg_th=neg_th,
                     )

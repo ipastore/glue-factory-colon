@@ -12,7 +12,7 @@ data:
     min_overlap: 0.0
     max_overlap: 0.7
     num_overlap_bins: 4
-    batch_size: 32 #32
+    batch_size: 4 #32
     num_workers: 8 #14
     max_num_features: 1024
     min_images_per_map: 0 
@@ -32,11 +32,13 @@ model:
         checkpointed: true
         add_scale_ori: true
         input_dim: 128
+        # weights: outputs/training/sift+lg_pretrained/sift_lightglue.pth
+
     ground_truth:
         name:  matchers.sparse_depth_matcher
         use_gt_pos: true
-        th_positive: 3
-        th_negative: 15
+        th_positive: null
+        th_negative: 10
         th_epi: null
         save_fig_when_debug: false
     allow_no_extract: True
@@ -65,9 +67,9 @@ train:
         exp_div_10: 10
     dataset_callback_fn: sample_new_items
     plot: [2, 'gluefactory.visualization.visualize_compare_lgoob.make_compare_lg_oob_figures', 4]
-    save_eval_figs: false
+    save_eval_figs: true
     keep_last_checkpoints: 50  # keep only the last X checkpoints
-    load_experiment: sift+lg_pretrained           # nothing before
+    load_experiment: null           # nothing before
 
 
 benchmarks:
