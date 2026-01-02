@@ -10,8 +10,8 @@ data:
     overfit_pairs: null
     overfit_num_per_scene: 8 
     min_overlap: 0.0
-    max_overlap: 0.7
-    num_overlap_bins: 4
+    max_overlap: 1.0
+    num_overlap_bins: 5
     batch_size: 4 #32
     num_workers: 8 #14
     max_num_features: 1024
@@ -32,7 +32,7 @@ model:
         checkpointed: true
         add_scale_ori: true
         input_dim: 128
-        # weights: outputs/training/sift+lg_pretrained/sift_lightglue.pth
+        weights: outputs/training/sift+lg_pretrained/sift_lightglue.pth
 
     ground_truth:
         name:  matchers.sparse_depth_matcher
@@ -41,7 +41,14 @@ model:
         th_negative: 10
         th_epi: null
         save_fig_when_debug: false
-    allow_no_extract: True
+    allow_no_extract: true
+    run_gt_in_forward: true
+    keypoint_rotation:
+        enabled: true
+        max_deg: 10.0
+        view: 0
+        train_only: true
+
 train:
     seed: 0
     epochs: 50

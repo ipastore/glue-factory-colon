@@ -62,6 +62,44 @@ def pad_to_length(
     return torch.cat([x, xn], dim=pad_dim)
 
 
+def mask_with_mode(x, keep, mode="zeros", bounds=(None, None)):
+    mask = keep
+    while mask.dim() < x.dim():
+        mask = mask.unsqueeze(-1)
+
+    mode_key = mode.lower() if isinstance(mode, str) else mode
+    if mode_key == "zeros":
+        fill = torch.zeros_like(x)
+    elif mode_key == "ones":
+        fill = torch.ones_like(x)
+    elif mode_key == "minus_one":
+        fill = torch.full_like(x, -1)
+    elif mode_key is False or mode_key == "false":
+        fill = torch.zeros_like(x)
+    elif mode_key == "random":
+        low, high = bounds
+        low = x.min() if low is None else low
+        high = x.max() if high is None else high
+        low_t = torch.as_tensor(low, device=x.device, dtype=x.dtype)
+        high_t = torch.as_tensor(high, device=x.device, dtype=x.dtype)
+        fill = torch.rand_like(x) * (high_t - low_t) + low_t
+    elif mode_key == "random_c":
+        low, high = bounds
+        if low is None or high is None:
+            low_t = x.amin(dim=-2, keepdim=True)
+            high_t = x.amax(dim=-2, keepdim=True)
+        else:
+            low_t = torch.as_tensor(low, device=x.device, dtype=x.dtype)
+            high_t = torch.as_tensor(high, device=x.device, dtype=x.dtype)
+            while low_t.dim() < x.dim():
+                low_t = low_t.unsqueeze(-2)
+                high_t = high_t.unsqueeze(-2)
+        fill = torch.rand_like(x) * (high_t - low_t) + low_t
+    else:
+        raise ValueError(mode)
+    return torch.where(mask, x, fill)
+
+
 def pad_and_stack(
     sequences: List[torch.Tensor],
     length: Optional[int] = None,
