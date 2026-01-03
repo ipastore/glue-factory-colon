@@ -45,7 +45,7 @@ model:
     run_gt_in_forward: true
     keypoint_rotation:
         enabled: true
-        max_deg: 10.0
+        max_deg: 180.0
         view: 0
         train_only: true
 

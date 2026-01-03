@@ -36,7 +36,7 @@ class TwoViewPipeline(BaseModel):
         "run_gt_in_forward": False,
         "keypoint_rotation": {
             "enabled": False,
-            "max_deg": 360.0,
+            "max_deg": 180.0,
             "view": 0,
             "train_only": True,
         },
@@ -117,7 +117,7 @@ class TwoViewPipeline(BaseModel):
         if max_rad <= 0:
             return pred
 
-        angles = torch.rand(batch_size, device=device) * max_rad
+        angles = (torch.rand(batch_size, device=device) * 2.0 - 1.0) * max_rad
         pred[f"rot_angle{view_idx}"] = angles
         camera = data[view_key]["camera"].to(device)
         center = camera.c
