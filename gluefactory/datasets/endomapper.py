@@ -189,17 +189,16 @@ class _PairDataset(torch.utils.data.Dataset):
             assert self.conf.views == 2
             pairs_path = seq_lists_path / self.conf[split + "_pairs"]
             for line in pairs_path.read_text().rstrip("\n").split("\n"):
-                im0, im1 = line.split(" ")
-                seq = im0.split("/")[0]
-                if seq not in self.image_names or im1.split("/")[0] != seq:
+                seq = line.split("/")[0]
+                im0_name = str(line.split("/")[1].split("_")[1].strip(".png"))
+                im1_name = str(line.split("/")[1].split("_")[-1].strip(".png"))
+                if seq not in self.image_names:
                     continue
-                im0_name = im0.split("/")[-1]
-                im1_name = im1.split("/")[-1]
                 if im0_name not in self.image_names[seq] or im1_name not in self.image_names[seq]:
                     continue
-                idx0 = np.where(self.image_names[seq] == im0_name)[0][0]
-                idx1 = np.where(self.image_names[seq] == im1_name)[0][0]
-                self.items.append((seq, idx0, idx1, 1.0))
+                # idx0 = np.where(self.image_names[seq] == im0_name)[0][0]
+                # idx1 = np.where(self.image_names[seq] == im1_name)[0][0]
+                self.items.append((seq, im0_name, im1_name, 1.0))
         #Not tested this if statement
         elif self.conf.views == 1:
             for seq in self.seqs_maps:

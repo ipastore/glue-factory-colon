@@ -4,15 +4,15 @@ data:
     train_split: train_seqs.txt
     train_num_per_scene: 300  #300
     val_split: val_seqs_NoKFCull.txt
-    val_num_per_scene: 8 
-    val_pairs: null
+    val_num_per_scene: null 
+    val_pairs: val_pairs_0-99.txt
     overfit_split: overfit_seqs_NoKFCull.txt
     overfit_pairs: null
     overfit_num_per_scene: 8 
     min_overlap: 0.0
     max_overlap: 1.0
     num_overlap_bins: 5
-    batch_size: 4 #32
+    batch_size: 32 #32
     num_workers: 8 #14
     max_num_features: 1024
     min_images_per_map: 0 
