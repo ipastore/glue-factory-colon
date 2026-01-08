@@ -196,9 +196,12 @@ class _PairDataset(torch.utils.data.Dataset):
                     continue
                 if im0_name not in self.image_names[seq] or im1_name not in self.image_names[seq]:
                     continue
-                # idx0 = np.where(self.image_names[seq] == im0_name)[0][0]
-                # idx1 = np.where(self.image_names[seq] == im1_name)[0][0]
-                self.items.append((seq, im0_name, im1_name, 1.0))
+                idx0 = np.where(self.image_names[seq] == im0_name)[0]
+                idx1 = np.where(self.image_names[seq] == im1_name)[0]
+                if len(idx0) == 0 or len(idx1) == 0:
+                    continue
+                overlap = self.overlap_matrix[seq][idx0[0], idx1[0]]
+                self.items.append((seq, im0_name, im1_name, overlap))
         #Not tested this if statement
         elif self.conf.views == 1:
             for seq in self.seqs_maps:

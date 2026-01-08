@@ -156,22 +156,7 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
             facecolors=["purple", "purple"],
             edgecolors=["none", "none"],
             lw=[0.5, 0.5],
-            ps=[2, 2],
-        )
-
-        plot_keypoints(
-            [kp0[i][kp0_map_mask], kp1[i][kp1_map_mask]],
-            axes=axes[0],
-            facecolors=["limegreen", "limegreen"],
-            ps=[2, 2],
-        )
-
-        # # TN face wout edge
-        plot_keypoints(
-            [kp0[i][kp0_neg_mask], kp1[i][kp1_neg_mask]],
-            axes=axes[0],
-            facecolors=["blue", "blue"],
-            ps=[2, 2],
+            ps=[0.5, 0.5],
         )
 
         # IGNORED face wout edge
@@ -179,9 +164,26 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
             [kp0[i][kp0_ign_mask], kp1[i][kp1_ign_mask]],
             axes=axes[0],
             facecolors=["lightgray", "lightgray"],
-            ps=[2, 2],
+            ps=[0.5, 0.5],
             # a=[0.6, 0.6],
         )
+
+
+        plot_keypoints(
+            [kp0[i][kp0_map_mask], kp1[i][kp1_map_mask]],
+            axes=axes[0],
+            facecolors=["limegreen", "limegreen"],
+            ps=[0.5, 0.5],
+        )
+
+        # # TN face wout edge
+        plot_keypoints(
+            [kp0[i][kp0_neg_mask], kp1[i][kp1_neg_mask]],
+            axes=axes[0],
+            facecolors=["blue", "blue"],
+            ps=[0.5, 0.5],
+        )
+
 
         # # FN edge
         # plot_keypoints(

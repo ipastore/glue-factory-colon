@@ -82,6 +82,8 @@ default_train_conf = {
     "save_eval_figs": False,  # persist evaluation figures to disk
     "log_val_metrics": False,
     "log_overfit_metrics": False,
+    "eval_overlap_bins": None,
+    "eval_overlap_bins_include_overall": True,
     "log_gt_pos_val_once": False,
     "log_gt_pos_overfit_once": False,
     "log_gt_pos_neg_ign_val_once": False,
@@ -113,6 +115,27 @@ def do_evaluation(
     results = {}
     pr_metrics = defaultdict(PRMetric)
     figures = []
+    bin_metrics = None
+    eval_overlap_bins = None
+    raw_bins = conf.get("eval_overlap_bins", None)
+    if raw_bins:
+        eval_overlap_bins = []
+        for bounds in raw_bins:
+            if bounds is None or len(bounds) != 2:
+                raise ValueError("eval_overlap_bins must contain [min, max] pairs.")
+            low = float(bounds[0])
+            high = float(bounds[1])
+            eval_overlap_bins.append((low, high))
+        if conf.get("eval_overlap_bins_include_overall", True) and eval_overlap_bins:
+            lows, highs = zip(*eval_overlap_bins)
+            overall_bounds = (min(lows), max(highs))
+            if overall_bounds not in eval_overlap_bins:
+                eval_overlap_bins.append(overall_bounds)
+        eval_overlap_bins = [
+            (low, high, f"overlap_{low:.2f}_{high:.2f}")
+            for low, high in eval_overlap_bins
+        ]
+        bin_metrics = {name: {} for _, _, name in eval_overlap_bins}
     if plot_ids is None:
         plot_ids = []
     plot_fn = None
@@ -222,6 +245,13 @@ def do_evaluation(
                     pred[v["predictions"]],
                     mask=pred[v["mask"]] if "mask" in v.keys() else None,
                 )
+            overlap_vals = None
+            if eval_overlap_bins is not None and "overlap_0to1" in data:
+                overlap_vals = data["overlap_0to1"]
+                if torch.is_tensor(overlap_vals):
+                    overlap_vals = overlap_vals.detach().float().view(-1)
+                else:
+                    overlap_vals = None
             del pred, data
             numbers = {**metrics, **{"loss/" + k: v for k, v in losses.items()}}
             for k, v in numbers.items():
@@ -238,13 +268,40 @@ def do_evaluation(
                 if k in conf.recall_metrics.keys():
                     q = conf.recall_metrics[k]
                     results[k + f"_recall{int(q)}"].update(v)
+            if overlap_vals is not None and bin_metrics is not None:
+                for low, high, name in eval_overlap_bins:
+                    mask = (overlap_vals >= low) & (overlap_vals < high)
+                    if not mask.any().item():
+                        continue
+                    bin_bucket = bin_metrics[name]
+                    for k, v in numbers.items():
+                        if k not in bin_bucket:
+                            bin_bucket[k] = AverageMetric()
+                            if k in conf.median_metrics:
+                                bin_bucket[k + "_median"] = MedianMetric()
+                            if k in conf.recall_metrics.keys():
+                                q = conf.recall_metrics[k]
+                                bin_bucket[k + f"_recall{int(q)}"] = RecallMetric(q)
+                        bin_bucket[k].update(v[mask])
+                        if k in conf.median_metrics:
+                            bin_bucket[k + "_median"].update(v[mask])
+                        if k in conf.recall_metrics.keys():
+                            q = conf.recall_metrics[k]
+                            bin_bucket[k + f"_recall{int(q)}"].update(v[mask])
             del numbers
     finally:
         if log_file is not None:
             log_file.close()
     results = {k: results[k].compute() for k in results}
     pr_metrics = {k: v.compute() for k, v in pr_metrics.items()}
-    return results, pr_metrics, figures
+    if bin_metrics is not None:
+        bin_results = {
+            name: {k: metric.compute() for k, metric in metrics.items()}
+            for name, metrics in bin_metrics.items()
+        }
+    else:
+        bin_results = None
+    return results, pr_metrics, figures, bin_results
 
 
 def filter_parameters(params, regexp):
@@ -641,7 +698,12 @@ def training(rank, conf, output_dir, args):
             baseline_conf.plot = None
             baseline_conf.save_eval_figs = False
             with fork_rng(seed=conf.train.seed):
-                baseline_results, baseline_pr_metrics, _ = do_evaluation(
+                (
+                    baseline_results,
+                    baseline_pr_metrics,
+                    _,
+                    baseline_bin_results,
+                ) = do_evaluation(
                     model,
                     val_loader,
                     device,
@@ -655,6 +717,11 @@ def training(rank, conf, output_dir, args):
             if rank == 0:
                 write_dict_summaries(writer, "val", baseline_results, 0)
                 write_dict_summaries(writer, "val", baseline_pr_metrics, 0)
+                if baseline_bin_results:
+                    for bin_name, bin_metrics in baseline_bin_results.items():
+                        if not bin_metrics:
+                            continue
+                        write_dict_summaries(writer, f"val/{bin_name}", bin_metrics, 0)
             if conf.train.log_gt_pos_val_once and not gt_pos_val_logged:
                 val_gt = generate_gt_figures(
                     model,
@@ -711,6 +778,7 @@ def training(rank, conf, output_dir, args):
                         baseline_overfit_results,
                         baseline_overfit_pr_metrics,
                         _,
+                        baseline_overfit_bin_results,
                     ) = do_evaluation(
                         model,
                         overfit_loader,
@@ -727,6 +795,13 @@ def training(rank, conf, output_dir, args):
                     write_dict_summaries(
                         writer, "overfit", baseline_overfit_pr_metrics, 0
                     )
+                    if baseline_overfit_bin_results:
+                        for bin_name, bin_metrics in baseline_overfit_bin_results.items():
+                            if not bin_metrics:
+                                continue
+                            write_dict_summaries(
+                                writer, f"overfit/{bin_name}", bin_metrics, 0
+                            )
                 if conf.train.log_gt_pos_overfit_once and not gt_pos_overfit_logged:
                     overfit_gt = generate_gt_figures(
                         model,
@@ -1031,7 +1106,7 @@ def training(rank, conf, output_dir, args):
             )
             if run_eval and not (baseline_ready and epoch == 0 and it == 0):
                 with fork_rng(seed=conf.train.seed):
-                    results, pr_metrics, figures = do_evaluation(
+                    results, pr_metrics, figures, bin_results = do_evaluation(
                         model,
                         val_loader,
                         device,
@@ -1068,6 +1143,13 @@ def training(rank, conf, output_dir, args):
                     logger.info(f'[Validation] {{{", ".join(str_results)}}}')
                     write_dict_summaries(writer, "val", results, tot_n_samples)
                     write_dict_summaries(writer, "val", pr_metrics, tot_n_samples)
+                    if bin_results:
+                        for bin_name, bin_metrics in bin_results.items():
+                            if not bin_metrics:
+                                continue
+                            write_dict_summaries(
+                                writer, f"val/{bin_name}", bin_metrics, tot_n_samples
+                            )
                     write_image_summaries(writer, "figures_val", figures, tot_n_samples)
                     if conf.train.save_eval_figs:
                         save_dir = output_dir / "eval_figs"
@@ -1094,7 +1176,12 @@ def training(rank, conf, output_dir, args):
                         logger.info(f"New best val: {conf.train.best_key}={best_eval}")
                 if overfit_loader is not None:
                     with fork_rng(seed=conf.train.seed):
-                        overfit_results, overfit_pr_metrics, overfit_figures = do_evaluation(
+                        (
+                            overfit_results,
+                            overfit_pr_metrics,
+                            overfit_figures,
+                            overfit_bin_results,
+                        ) = do_evaluation(
                             model,
                             overfit_loader,
                             device,
@@ -1134,6 +1221,16 @@ def training(rank, conf, output_dir, args):
                         write_dict_summaries(
                             writer, "overfit", overfit_pr_metrics, tot_n_samples
                         )
+                        if overfit_bin_results:
+                            for bin_name, bin_metrics in overfit_bin_results.items():
+                                if not bin_metrics:
+                                    continue
+                                write_dict_summaries(
+                                    writer,
+                                    f"overfit/{bin_name}",
+                                    bin_metrics,
+                                    tot_n_samples,
+                                )
                         write_image_summaries(
                             writer,
                             "figures_overfit",
@@ -1144,7 +1241,7 @@ def training(rank, conf, output_dir, args):
 
             if (tot_it % conf.train.save_every_iter == 0 and tot_it > 0) and rank == 0:
                 if results is None:
-                    results, _, _ = do_evaluation(
+                    results, _, _, _ = do_evaluation(
                         model,
                         val_loader,
                         device,

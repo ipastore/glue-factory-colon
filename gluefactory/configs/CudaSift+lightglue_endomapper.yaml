@@ -5,12 +5,12 @@ data:
     train_num_per_scene: 300  #300
     val_split: val_seqs_NoKFCull.txt
     val_num_per_scene: null 
-    val_pairs: val_pairs_0-99.txt
+    val_pairs: val_pairs_all_bins.txt
     overfit_split: overfit_seqs_NoKFCull.txt
     overfit_pairs: null
-    overfit_num_per_scene: 8 
+    overfit_num_per_scene: 10 
     min_overlap: 0.0
-    max_overlap: 1.0
+    max_overlap: 0.99
     num_overlap_bins: 5
     batch_size: 32 #32
     num_workers: 8 #14
@@ -27,7 +27,7 @@ model:
         name: null
     matcher:
         name: matchers.lightglue
-        filter_threshold: 0.1
+        filter_threshold: 1e-3
         flash: false
         checkpointed: true
         add_scale_ori: true
@@ -45,15 +45,15 @@ model:
     run_gt_in_forward: true
     keypoint_rotation:
         enabled: true
-        max_deg: 180.0
+        max_deg: 90.0
         view: 0
         train_only: true
 
 train:
     seed: 0
-    epochs: 50
+    epochs: 500
     log_every_iter: 100
-    eval_every_iter: 100 #1000
+    eval_every_iter: 999999999 #1000
 
     # Write into tb gt figures
     log_gt_pos_val_once: true
@@ -64,19 +64,26 @@ train:
     # Log into txt metrics for all val and overfit datasets
     log_val_metrics: true
     log_overfit_metrics: true
+    eval_overlap_bins:
+        - [0.0, 0.2]
+        - [0.2, 0.4]
+        - [0.4, 0.6]
+        - [0.6, 0.8]
+        - [0.8, 0.99]
+    eval_overlap_bins_include_overall: true
     
 
-    lr: 1e-4
-    lr_schedule:
-        start: 30
-        type: exp
-        on_epoch: true
-        exp_div_10: 10
+    lr: 1e-6
+    # lr_schedule:
+    #     start: 30
+    #     type: exp
+    #     on_epoch: true
+    #     exp_div_10: 10
     dataset_callback_fn: sample_new_items
     plot: [2, 'gluefactory.visualization.visualize_compare_lgoob.make_compare_lg_oob_figures', 4]
     plot_ignored_predictions: true
-    save_eval_figs: true
-    keep_last_checkpoints: 50  # keep only the last X checkpoints
+    save_eval_figs: false
+    keep_last_checkpoints: 2  # keep only the last X checkpoints
     load_experiment: null           # nothing before
 
 

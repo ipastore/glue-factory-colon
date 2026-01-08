@@ -118,7 +118,6 @@ def gt_matches_from_pose_sparse_map(
         m1 = torch.where(positive_gt.any(-2), idx1, m1)
         positive = positive | positive_gt
 
-    # Two sources of error: noisy depth, no kannala-brandt projection model
     kp0_1, visible0 = project(
         kp0, d0, depth1, camera0, camera1, T_0to1, valid_d0, ccth=cc_th
     )
