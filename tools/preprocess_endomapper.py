@@ -1,11 +1,13 @@
 """Preprocess Endomapper sequences into per-sequence NPZ caches."""
 
 import argparse
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
-import subprocess
 
 from gluefactory.datasets.endomapper_utils import (
     MISSING_DEPTH_VALUE,
@@ -29,16 +31,23 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Preprocess Endomapper COLMAP outputs and CUDASIFT features into NPZ caches."
     )
-    parser.add_argument(
-    "--video-root",
-    type=Path,
-    default=None,
-    help="Root directory containing video files (e.g., ~/all_sequences). If provided, extracts keyframes.",
+    frames_group = parser.add_mutually_exclusive_group()
+    frames_group.add_argument(
+        "--video-root",
+        type=Path,
+        default=None,
+        help="Root directory containing video files (e.g., ~/all_sequences). If provided, extracts keyframes.",
+    )
+    frames_group.add_argument(
+        "--frames-root",
+        type=Path,
+        default=None,
+        help="Root directory containing per-frame extractions (Seq_*/Frame%08d.png). If provided, extracts keyframes.",
     )
     parser.add_argument(
         "--skip-frame-extraction",
         action="store_true",
-        help="Skip frame extraction even if --video-root is provided.",
+        help="Skip frame extraction even if --video-root or --frames-root is provided.",
     )
     parser.add_argument(
             "--root",
@@ -75,6 +84,65 @@ def parse_args() -> argparse.Namespace:
 
 def _extract_frames_for_sequence(
     seq_dir: Path,
+    frames_root: Path,
+    map_ids: List[str],
+) -> bool:
+    """Copy pre-extracted frames into each map keyframes directory."""
+    seq_name = seq_dir.name
+    frames_dir = frames_root / seq_name
+    if not frames_dir.exists():
+        print(f"  [warn] Frames not found: {frames_dir}")
+        return False
+
+    maps_root = seq_dir / "output" / "3D_maps"
+    if not maps_root.exists():
+        print(f"  [warn] No 3D_maps directory: {maps_root}")
+        return False
+
+    print(f"  [frames] Copying keyframes for {seq_name}...")
+    numeric_name = re.compile(r"^[0-9]+$")
+    copied = 0
+    images_by_map: Dict[str, Dict[int, object]] = {}
+    for map_id in map_ids:
+        images_txt = maps_root / str(map_id) / "images.txt"
+        if images_txt.exists():
+            images_by_map[map_id] = read_images_txt(images_txt)
+        else:
+            images_by_map[map_id] = {}
+
+    for map_id in map_ids:
+        map_dir = maps_root / str(map_id)
+        images = images_by_map.get(str(map_id))
+        if not images:
+            print(f"  [warn] No images loaded for map {map_id}")
+            continue
+        outdir = map_dir / "keyframes"
+        outdir.mkdir(parents=True, exist_ok=True)
+        for image in images.values():
+            stem = Path(image.name).stem
+            if not numeric_name.match(stem):
+                print(f"  [warn] Non-numeric image name: {image.name}")
+                continue
+            n = int(stem)
+            src = frames_dir / f"Frame{n:08d}.png"
+            if not src.exists():
+                alt = frames_dir / f"Frame_{n:08d}.png"
+                if alt.exists():
+                    src = alt
+                else:
+                    print(f"  [warn] Missing frame: {src.name}")
+                    continue
+            shutil.copy2(src, outdir / f"Keyframe_{n}.png")
+            copied += 1
+
+    if copied:
+        print(f"  [frames] ✓ Copied {copied} keyframes for {seq_name}")
+        return True
+    print(f"  [frames] ✗ No keyframes copied for {seq_name}")
+    return False
+
+def _extract_frames_from_video(
+    seq_dir: Path,
     video_root: Path,
     map_ids: List[str],
     out_root: Path,
@@ -82,28 +150,31 @@ def _extract_frames_for_sequence(
     """Extract frames for a sequence using extract_frames_depths_matches_endomapper_seq.py"""
     seq_name = seq_dir.name
     video_path = video_root / f"{seq_name}.mp4"
-    
+
+    if not video_path.exists():
+        video_path = video_root / seq_name / f"{seq_name}.mov"
+
     if not video_path.exists():
         print(f"  [warn] Video not found: {video_path}")
         return False
-    
+
     maps_root = seq_dir / "output" / "3D_maps"
     if not maps_root.exists():
         print(f"  [warn] No 3D_maps directory: {maps_root}")
         return False
-    
+
     print(f"  [frames] Extracting keyframes for {seq_name}...")
-    
+
     cmd = [
         "python3",
         "tools/extract_frames_depths_matches_endomapper_seq.py",
         "--maps_root", str(maps_root),
-        "--keyframes",
+        "--keyframes_in_map_dir",
         "--video", str(video_path),
         "--number_from", "name",
         "--out_root", str(out_root),
     ]
-    
+
     try:
         subprocess.run(cmd, check=True)
         print(f"  [frames] ✓ Extracted frames for {seq_name}")
@@ -251,6 +322,7 @@ def main():
     root = args.root
     out_dir = args.output_dir or (root / "processed_npz")
     video_root = args.video_root
+    frames_root = args.frames_root
 
     sequences = _find_sequences(root, args.sequences)
     if not sequences:
@@ -258,16 +330,22 @@ def main():
         return 1
 
     # First pass: extract frames if requested
-    if video_root and not args.skip_frame_extraction:
+    if (video_root or frames_root) and not args.skip_frame_extraction:
         print("=" * 60)
-        print("STEP 1: Extracting keyframes from videos")
+        if frames_root:
+            print("STEP 1: Extracting keyframes from frames")
+        else:
+            print("STEP 1: Extracting keyframes from videos")
         print("=" * 60)
         for seq_dir in sequences:
             map_ids = _find_map_ids(seq_dir, args.map_ids)
             if not map_ids:
                 print(f"[skip] {seq_dir.name}: no maps under output/3D_maps/")
                 continue
-            _extract_frames_for_sequence(seq_dir, video_root, map_ids, root)
+            if frames_root:
+                _extract_frames_for_sequence(seq_dir, frames_root, map_ids)
+            else:
+                _extract_frames_from_video(seq_dir, video_root, map_ids, root)
         print()
 
     # Second pass: process sequences into NPZ

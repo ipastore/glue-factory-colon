@@ -218,10 +218,9 @@ def main():
     out_root = Path(args.out_root) if args.out_root else None
     if out_root:
         out_root.mkdir(parents=True, exist_ok=True)
-
-    # Detectar mapas
-    map_dirs = [(int(d.name), d) for d in sorted(maps_root.iterdir(), key=lambda p: p.name)
-                if d.is_dir() and d.name.isdigit()]
+        valid_dirs = [d for d in maps_root.iterdir() if d.is_dir() and d.name.isdigit()]
+        valid_dirs.sort(key=lambda d: int(d.name))
+        map_dirs = [(int(d.name), d) for d in valid_dirs]
     if not map_dirs:
         print("No se encontraron mapas en", maps_root)
         sys.exit(1)

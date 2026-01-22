@@ -155,16 +155,16 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
             axes=axes[0],
             facecolors=["purple", "purple"],
             edgecolors=["none", "none"],
-            lw=[0.5, 0.5],
-            ps=[0.5, 0.5],
+            lw=[1, 1],
+            ps=[1, 1],
         )
 
         # IGNORED face wout edge
         plot_keypoints(
             [kp0[i][kp0_ign_mask], kp1[i][kp1_ign_mask]],
             axes=axes[0],
-            facecolors=["lightgray", "lightgray"],
-            ps=[0.5, 0.5],
+            facecolors=["black", "black"],
+            ps=[1, 1],
             # a=[0.6, 0.6],
         )
 
@@ -173,7 +173,7 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
             [kp0[i][kp0_map_mask], kp1[i][kp1_map_mask]],
             axes=axes[0],
             facecolors=["limegreen", "limegreen"],
-            ps=[0.5, 0.5],
+            ps=[1, 1],
         )
 
         # # TN face wout edge
@@ -181,7 +181,7 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
             [kp0[i][kp0_neg_mask], kp1[i][kp1_neg_mask]],
             axes=axes[0],
             facecolors=["blue", "blue"],
-            ps=[0.5, 0.5],
+            ps=[1, 1],
         )
 
 
@@ -241,7 +241,7 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
             Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
             Patch(facecolor='purple', edgecolor='none', label='GT pos reproj'),
             Patch(facecolor='blue', edgecolor='none', label='GT neg'),
-            Patch(facecolor='lightgray', edgecolor='none', label='GT ign'),
+            Patch(facecolor='black', edgecolor='none', label='GT ign'),
             # Patch(facecolor='none', edgecolor='limegreen', label='TP'),
             # Patch(facecolor='none', edgecolor='red', label='FP'),
             # Patch(facecolor='none', edgecolor='lightgray', label='FP ignored'),
