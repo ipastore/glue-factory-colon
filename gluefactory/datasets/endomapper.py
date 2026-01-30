@@ -140,30 +140,32 @@ class _PairDataset(torch.utils.data.Dataset):
         for seq_map in seqs_maps:
             path = self.root / self.conf.npz_subpath / f"{seq_map}.npz"
             try:
-                data_npz = np.load(str(path), allow_pickle=True)
+                with np.load(str(path), allow_pickle=True) as data_npz:
+                    len_images = data_npz["image_names"].shape[0]
+                    len_3D_points = data_npz["point3D_ids"].shape[0]
+                    if (
+                        len_images < self.conf.min_images_per_map
+                        or len_3D_points < self.conf.min_3D_points_per_map
+                    ):
+                        continue
+
+                    self.image_names[seq_map] = data_npz["image_names"]
+                    self.image_sizes[seq_map] = data_npz["image_sizes"]
+                    self.camera_ids[seq_map] = data_npz["camera_ids"]
+                    self.poses[seq_map] = data_npz["poses"]
+                    self.intrinsics[seq_map] = data_npz["intrinsics"]
+                    self.map_id[seq_map] = str(np.asarray(data_npz["map_id"]).item())
+                    self.seq[seq_map] = str(np.asarray(data_npz["seq"]).item())
+                    self.point3D_ids_all[seq_map] = data_npz["point3D_ids"]
+                    self.point3D_coords_all[seq_map] = data_npz["point3D_coords"]
+                    self.overlap_matrix[seq_map] = data_npz["overlap_matrix"].astype(
+                        np.float32, copy=False
+                    )
             except Exception:
                 logger.warning(
                     "Cannot load seq_map data for %s at %s", seq_map, path
                 )
                 continue
-
-            len_images = data_npz["image_names"].shape[0]
-            len_3D_points = data_npz["point3D_ids"].shape[0]
-            if len_images < self.conf.min_images_per_map or len_3D_points < self.conf.min_3D_points_per_map:
-                continue
-
-            self.image_names[seq_map] = data_npz["image_names"]
-            self.image_sizes[seq_map] = data_npz["image_sizes"]
-            self.camera_ids[seq_map] = data_npz["camera_ids"]
-            self.poses[seq_map] = data_npz["poses"]
-            self.intrinsics[seq_map] = data_npz["intrinsics"]
-            self.map_id[seq_map] = str(np.asarray(data_npz["map_id"]).item())
-            self.seq[seq_map] = str(np.asarray(data_npz["seq"]).item())
-            self.point3D_ids_all[seq_map] = data_npz["point3D_ids"]
-            self.point3D_coords_all[seq_map] = data_npz["point3D_coords"]
-            self.overlap_matrix[seq_map] = data_npz["overlap_matrix"].astype(
-                np.float32, copy=False
-            )
 
             self.seqs_maps.append(seq_map)
 
@@ -286,12 +288,58 @@ class _PairDataset(torch.utils.data.Dataset):
         image_names = self.image_names[seq_map]
         idx = np.where(image_names == image_name)[0][0]
         path = self.root / self.conf.npz_subpath / f"{seq_map}.npz"
-        data_npz = None
         try:
             data_npz = np.load(str(path), allow_pickle=True)
         except Exception:
             logger.error(
                 "Failed to open NPZ: path=%s seq_map=%s image_name=%s idx=%d",
+                path,
+                seq_map,
+                image_name,
+                idx,
+                exc_info=True,
+            )
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    bad_member = zf.testzip()
+                if bad_member:
+                    logger.error("zipfile.testzip() bad member: %s", bad_member)
+                else:
+                    logger.error("zipfile.testzip() did not find bad members.")
+            except Exception as zip_error:
+                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGINT)
+                except Exception as kill_error:
+                    logger.error("Failed to signal process group: %s", kill_error)
+                os._exit(1)
+            raise SystemExit(1)
+
+        try:
+            with data_npz:
+                sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
+                keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()
+                descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()
+                scales = torch.from_numpy(data_npz["scales_per_image"][idx]).float()
+                orientations = torch.from_numpy(data_npz["orientations_per_image"][idx]).float()
+                orientations = orientations * (torch.pi / 180.0)
+                point3D_ids = torch.from_numpy(data_npz["point3D_ids_per_image"][idx]).float()
+                valid_depth_mask = torch.from_numpy(data_npz["valid_depth_mask_per_image"][idx]).bool()
+                valid_3D_mask = torch.from_numpy(data_npz["valid_3d_mask_per_image"][idx]).bool()
+                keypoint_scores = (
+                    torch.from_numpy(np.abs(data_npz["scores_per_image"][idx])).float()
+                    * scales
+                )
+                camera = Camera.from_npz(
+                    data_npz["cameras"][
+                        int(np.asarray(data_npz["camera_indices"][idx]).item())
+                    ]
+                ).float()
+        except Exception:
+            logger.error(
+                "Failed to read NPZ content: path=%s seq_map=%s image_name=%s idx=%d",
                 path,
                 seq_map,
                 image_name,
@@ -345,43 +393,6 @@ class _PairDataset(torch.utils.data.Dataset):
                 except Exception:
                     logger.warning("Failed to load image at %s, using dummy.", image_path)
                     image = _dummy_image()
-        try:
-            sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
-            keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()
-            descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()
-            scales = torch.from_numpy(data_npz["scales_per_image"][idx]).float()
-            orientations = torch.from_numpy(data_npz["orientations_per_image"][idx]).float()
-            orientations = orientations * (torch.pi / 180.0)
-            point3D_ids = torch.from_numpy(data_npz["point3D_ids_per_image"][idx]).float()
-            valid_depth_mask = torch.from_numpy(data_npz["valid_depth_mask_per_image"][idx]).bool()
-            valid_3D_mask = torch.from_numpy(data_npz["valid_3d_mask_per_image"][idx]).bool()
-            keypoint_scores = torch.from_numpy(np.abs(data_npz["scores_per_image"][idx])).float() * scales
-        except Exception:
-            logger.error(
-                "Failed to read NPZ content: path=%s seq_map=%s image_name=%s idx=%d",
-                path,
-                seq_map,
-                image_name,
-                idx,
-                exc_info=True,
-            )
-            try:
-                with zipfile.ZipFile(path) as zf:
-                    bad_member = zf.testzip()
-                if bad_member:
-                    logger.error("zipfile.testzip() bad member: %s", bad_member)
-                else:
-                    logger.error("zipfile.testzip() did not find bad members.")
-            except Exception as zip_error:
-                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
-            worker_info = torch.utils.data.get_worker_info()
-            if worker_info is not None:
-                try:
-                    os.killpg(os.getpgrp(), signal.SIGINT)
-                except Exception as kill_error:
-                    logger.error("Failed to signal process group: %s", kill_error)
-                os._exit(1)
-            raise SystemExit(1)
         # Assert all feature arrays have the same length in first dimension
         lengths = {
             keypoints.shape[0],
@@ -465,9 +476,7 @@ class _PairDataset(torch.utils.data.Dataset):
             "name": name,
             "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
-            "camera": Camera.from_npz(
-                data_npz["cameras"][int(np.asarray(data_npz["camera_indices"][idx]).item())]
-            ).float(),
+            "camera": camera,
             "image_size": image_size, #WxH
         }
         if image is not None:

@@ -67,6 +67,14 @@ def check_npz(
         return False, f"File not found: {path}", []
 
     try:
+        with zipfile.ZipFile(path) as zf:
+            bad_member = zf.testzip()
+        if bad_member:
+            return False, f"zipfile.testzip bad member: {bad_member}", []
+    except Exception as zip_error:
+        return False, f"zipfile.testzip failed: {zip_error}", []
+
+    try:
         # Try to load the NPZ file
         data = np.load(str(path), allow_pickle=True)
         
@@ -177,6 +185,19 @@ def main():
         action="store_true",
         help="Force full read of each NPZ array (slower, catches deeper corruption).",
     )
+    parser.add_argument(
+        "--npz",
+        type=str,
+        default=None,
+        help=(
+            "Check a single NPZ file (absolute path or relative to processed_npz)."
+        ),
+    )
+    parser.add_argument(
+        "--skip-images",
+        action="store_true",
+        help="Skip image validation and only check NPZ integrity.",
+    )
     args = parser.parse_args()
 
     # Root directory containing sequences
@@ -190,16 +211,27 @@ def main():
         print(f"Please check the path in the script.")
         return 1
     
-    if cv2 is None:
+    if args.skip_images:
+        check_images = False
+    elif cv2 is None:
         print("Warning: OpenCV not available. Image checking will be skipped.")
         check_images = False
     else:
         check_images = True
     
+    image_status = "ENABLED" if check_images else "DISABLED"
+    if not check_images and args.skip_images:
+        image_status += " (skip-images)"
     print(f"Checking NPZ files in: {npz_dir}")
-    print(f"Image validation: {'ENABLED' if check_images else 'DISABLED'}")
+    print(f"Image validation: {image_status}")
     print(f"Full read: {'ENABLED' if args.full_read else 'DISABLED'}")
-    npz_files = sorted(npz_dir.glob("*.npz"))
+    if args.npz:
+        npz_path = Path(args.npz)
+        if not npz_path.is_absolute():
+            npz_path = npz_dir / npz_path
+        npz_files = [npz_path]
+    else:
+        npz_files = sorted(npz_dir.glob("*.npz"))
     
     if not npz_files:
         print(f"No NPZ files found in {npz_dir}")
