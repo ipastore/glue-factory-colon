@@ -1,7 +1,9 @@
 """Check for corrupted/missing NPZ files and their referenced images in Endomapper."""
+import argparse
 import sys
 from pathlib import Path
 import numpy as np
+import zipfile
 from tqdm import tqdm
 
 try:
@@ -53,7 +55,12 @@ def check_image(path: Path):
     except Exception as e:
         return False, f"cv2.imread exception: {e}"
 
-def check_npz(path: Path, data_root: Path, check_images: bool = True):
+def check_npz(
+    path: Path,
+    data_root: Path,
+    check_images: bool = True,
+    full_read: bool = False,
+):
     """Check if an NPZ file can be opened and loaded properly, optionally check images."""
     path = Path(path)
     if not path.exists():
@@ -81,9 +88,27 @@ def check_npz(path: Path, data_root: Path, check_images: bool = True):
                 # For object arrays (ragged), try to access first element if exists
                 if arr.dtype == object and len(arr) > 0:
                     _ = arr[0]
+                if full_read:
+                    if arr.dtype == object:
+                        for i in range(len(arr)):
+                            _ = arr[i]
+                            if hasattr(_, "shape"):
+                                _ = _.shape
+                    else:
+                        _ = np.asarray(arr)
             except Exception as e:
                 data.close()
-                return False, f"Error accessing key '{key}': {e}", []
+                zip_info = None
+                try:
+                    with zipfile.ZipFile(path) as zf:
+                        bad_member = zf.testzip()
+                    if bad_member:
+                        zip_info = f"zipfile.testzip bad member: {bad_member}"
+                    else:
+                        zip_info = "zipfile.testzip did not find bad members"
+                except Exception as zip_error:
+                    zip_info = f"zipfile.testzip failed: {zip_error}"
+                return False, f"Error accessing key '{key}': {e} | {zip_info}", []
         
         # Check referenced images if requested
         missing_images = []
@@ -110,7 +135,17 @@ def check_npz(path: Path, data_root: Path, check_images: bool = True):
                         
             except Exception as e:
                 data.close()
-                return False, f"Error checking images: {e}", []
+                zip_info = None
+                try:
+                    with zipfile.ZipFile(path) as zf:
+                        bad_member = zf.testzip()
+                    if bad_member:
+                        zip_info = f"zipfile.testzip bad member: {bad_member}"
+                    else:
+                        zip_info = "zipfile.testzip did not find bad members"
+                except Exception as zip_error:
+                    zip_info = f"zipfile.testzip failed: {zip_error}"
+                return False, f"Error checking images: {e} | {zip_info}", []
         
         # Success
         data.close()
@@ -121,11 +156,31 @@ def check_npz(path: Path, data_root: Path, check_images: bool = True):
         return True, None, []
         
     except Exception as e:
-        return False, f"Failed to load NPZ: {e}", []
+        zip_info = None
+        try:
+            with zipfile.ZipFile(path) as zf:
+                bad_member = zf.testzip()
+            if bad_member:
+                zip_info = f"zipfile.testzip bad member: {bad_member}"
+            else:
+                zip_info = "zipfile.testzip did not find bad members"
+        except Exception as zip_error:
+            zip_info = f"zipfile.testzip failed: {zip_error}"
+        return False, f"Failed to load NPZ: {e} | {zip_info}", []
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Check for corrupted/missing NPZ files and referenced images."
+    )
+    parser.add_argument(
+        "--full-read",
+        action="store_true",
+        help="Force full read of each NPZ array (slower, catches deeper corruption).",
+    )
+    args = parser.parse_args()
+
     # Root directory containing sequences
-    data_root = Path("/home/student/glue-factory-colon/data/Endomapper_CUDASIFT_DIC25")
+    data_root = Path("/media/student/HDD/nacho/glue-factory/data/slam-results-nacho")
     npz_subdir = "processed_npz"
     
     npz_dir = data_root / npz_subdir
@@ -143,6 +198,7 @@ def main():
     
     print(f"Checking NPZ files in: {npz_dir}")
     print(f"Image validation: {'ENABLED' if check_images else 'DISABLED'}")
+    print(f"Full read: {'ENABLED' if args.full_read else 'DISABLED'}")
     npz_files = sorted(npz_dir.glob("*.npz"))
     
     if not npz_files:
@@ -155,7 +211,12 @@ def main():
     all_missing_images = []
     
     for npz_path in tqdm(npz_files, desc="Checking NPZ files"):
-        result, error, missing_images = check_npz(npz_path, data_root, check_images)
+        result, error, missing_images = check_npz(
+            npz_path,
+            data_root,
+            check_images=check_images,
+            full_read=args.full_read,
+        )
         
         if not result:
             corrupted_npz.append((npz_path, error))

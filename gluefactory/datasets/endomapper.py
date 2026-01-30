@@ -1,5 +1,8 @@
 import argparse
 import logging
+import os
+import signal
+import zipfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict
@@ -283,7 +286,35 @@ class _PairDataset(torch.utils.data.Dataset):
         image_names = self.image_names[seq_map]
         idx = np.where(image_names == image_name)[0][0]
         path = self.root / self.conf.npz_subpath / f"{seq_map}.npz"
-        data_npz = np.load(str(path), allow_pickle=True)
+        data_npz = None
+        try:
+            data_npz = np.load(str(path), allow_pickle=True)
+        except Exception:
+            logger.error(
+                "Failed to open NPZ: path=%s seq_map=%s image_name=%s idx=%d",
+                path,
+                seq_map,
+                image_name,
+                idx,
+                exc_info=True,
+            )
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    bad_member = zf.testzip()
+                if bad_member:
+                    logger.error("zipfile.testzip() bad member: %s", bad_member)
+                else:
+                    logger.error("zipfile.testzip() did not find bad members.")
+            except Exception as zip_error:
+                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGINT)
+                except Exception as kill_error:
+                    logger.error("Failed to signal process group: %s", kill_error)
+                os._exit(1)
+            raise SystemExit(1)
 
         # read pose data
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
@@ -314,17 +345,43 @@ class _PairDataset(torch.utils.data.Dataset):
                 except Exception:
                     logger.warning("Failed to load image at %s, using dummy.", image_path)
                     image = _dummy_image()
-        sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
-        keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()  
-        descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()  
-        scales = torch.from_numpy(data_npz["scales_per_image"][idx]).float()  
-        orientations = torch.from_numpy(data_npz["orientations_per_image"][idx]).float()
-        orientations = orientations * (torch.pi / 180.0)
-        point3D_ids = torch.from_numpy(data_npz["point3D_ids_per_image"][idx]).float()
-        valid_depth_mask = torch.from_numpy(data_npz["valid_depth_mask_per_image"][idx]).bool()
-        valid_3D_mask = torch.from_numpy(data_npz["valid_3d_mask_per_image"][idx]).bool()
-        keypoint_scores = torch.from_numpy(np.abs(data_npz["scores_per_image"][idx])).float() * scales
-
+        try:
+            sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
+            keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()
+            descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()
+            scales = torch.from_numpy(data_npz["scales_per_image"][idx]).float()
+            orientations = torch.from_numpy(data_npz["orientations_per_image"][idx]).float()
+            orientations = orientations * (torch.pi / 180.0)
+            point3D_ids = torch.from_numpy(data_npz["point3D_ids_per_image"][idx]).float()
+            valid_depth_mask = torch.from_numpy(data_npz["valid_depth_mask_per_image"][idx]).bool()
+            valid_3D_mask = torch.from_numpy(data_npz["valid_3d_mask_per_image"][idx]).bool()
+            keypoint_scores = torch.from_numpy(np.abs(data_npz["scores_per_image"][idx])).float() * scales
+        except Exception:
+            logger.error(
+                "Failed to read NPZ content: path=%s seq_map=%s image_name=%s idx=%d",
+                path,
+                seq_map,
+                image_name,
+                idx,
+                exc_info=True,
+            )
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    bad_member = zf.testzip()
+                if bad_member:
+                    logger.error("zipfile.testzip() bad member: %s", bad_member)
+                else:
+                    logger.error("zipfile.testzip() did not find bad members.")
+            except Exception as zip_error:
+                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGINT)
+                except Exception as kill_error:
+                    logger.error("Failed to signal process group: %s", kill_error)
+                os._exit(1)
+            raise SystemExit(1)
         # Assert all feature arrays have the same length in first dimension
         lengths = {
             keypoints.shape[0],
@@ -416,6 +473,8 @@ class _PairDataset(torch.utils.data.Dataset):
         if image is not None:
             data["image"] = image
         data = {"cache": cache, **data}
+        if data_npz is not None:
+            data_npz.close()
         return data
 
     def __getitem__(self, idx):

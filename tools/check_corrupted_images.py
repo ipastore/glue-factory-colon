@@ -1,5 +1,6 @@
 """Check for corrupted images in the dataset."""
 import sys
+import traceback
 from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
@@ -26,8 +27,7 @@ def check_image(path: Path):
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if image is None:
             return False, "cv2.imread returned None (could not decode image)"
-        # success
-        return True
+        return True, None
     except Exception as e:
         return False, f"cv2.imread exception: {e}"
     
@@ -44,10 +44,14 @@ def main():
         
         corrupted = []
         for img_path in tqdm(images):
-            result = check_image(img_path)
-            if result is not True:
-                corrupted.append((img_path, result[1]))
-                print(f"Corrupted: {img_path.name} - {result[1]}")
+            try:
+                ok, error = check_image(img_path)
+            except Exception:
+                ok = False
+                error = f"Unhandled exception:\n{traceback.format_exc()}"
+            if not ok:
+                corrupted.append((img_path, error))
+                print(f"Corrupted: {img_path.name} - {error}")
         
         print(f"\nFound {len(corrupted)} corrupted images in {split}")
         
