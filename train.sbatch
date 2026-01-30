@@ -7,7 +7,8 @@
 #SBATCH --gres-flags=disable-binding
 #SBATCH --cpus-per-task=10
 #SBATCH --mem-per-cpu=8G
-#SBATCH --output=/dev/null
+#SBATCH --output=slurm-%j.out
+#SBATCH --error=slurm-%j.err
   
 # per-run log dir (group by job name)
 LOGROOT="${SLURM_SUBMIT_DIR}/dgx_logs/${SLURM_JOB_NAME}"
