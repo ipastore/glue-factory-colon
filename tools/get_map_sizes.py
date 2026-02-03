@@ -8,6 +8,7 @@ DEFAULT_NPZ_DIR = Path(
 )
 DEFAULT_TRAIN_LIST = Path("gluefactory/datasets/endomapper_seq_lists/train_seqs.txt")
 DEFAULT_VAL_LIST = Path("gluefactory/datasets/endomapper_seq_lists/val_seqs.txt")
+OUTPUT_PATH = Path("docs/theory/map_sizes/map_sizes.txt")
 
 
 def parse_args():
@@ -22,9 +23,11 @@ def parse_args():
 
 args = parse_args()
 npz_dir = args.npz_dir
+OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+out_file = OUTPUT_PATH.open("w")
 
-print("Map Size Distribution:")
-print("=" * 60)
+print("Map Size Distribution:", file=out_file)
+print("=" * 60, file=out_file)
 
 sizes = []
 split_hist = {"train": np.zeros(5, dtype=np.int64), "val": np.zeros(5, dtype=np.int64)}
@@ -117,22 +120,25 @@ for npz_file in sorted(npz_dir.glob("*.npz")):
             if is_val:
                 split_hist["val"] += np.array(overlap_counts, dtype=np.int64)
                 split_images["val"] += num_images
-        print(f"{npz_file.stem:30s}: {num_images:3d} images{overlap_hist}")
+        print(
+            f"{npz_file.stem:30s}: {num_images:3d} images{overlap_hist}",
+            file=out_file,
+        )
     except Exception as e:
-        print(f"{npz_file.stem:30s}: ERROR - {e}")
+        print(f"{npz_file.stem:30s}: ERROR - {e}", file=out_file)
 
 if sizes:
     sizes_only = [s[1] for s in sizes]
-    print("\n" + "=" * 60)
-    print(f"Total maps: {len(sizes)}")
-    print(f"Min images: {min(sizes_only)}")
-    print(f"Max images: {max(sizes_only)}")
-    print(f"Mean images: {np.mean(sizes_only):.1f}")
-    print(f"Median images: {np.median(sizes_only):.1f}")
+    print("\n" + "=" * 60, file=out_file)
+    print(f"Total maps: {len(sizes)}", file=out_file)
+    print(f"Min images: {min(sizes_only)}", file=out_file)
+    print(f"Max images: {max(sizes_only)}", file=out_file)
+    print(f"Mean images: {np.mean(sizes_only):.1f}", file=out_file)
+    print(f"Median images: {np.median(sizes_only):.1f}", file=out_file)
 
     if split_enabled:
-        print("\n" + "=" * 60)
-        print("Overlap Histogram Totals:")
+        print("\n" + "=" * 60, file=out_file)
+        print("Overlap Histogram Totals:", file=out_file)
         train_label = ",".join(train_prefixes + sorted(train_seqs))
         val_label = ",".join(val_prefixes + sorted(val_seqs))
         for split in ("train", "val"):
@@ -162,5 +168,8 @@ if sizes:
                     perc[3],
                     counts[4],
                     perc[4],
-                )
+                ),
+                file=out_file,
             )
+print(f"\nOutput saved to: {OUTPUT_PATH}")
+out_file.close()

@@ -62,11 +62,11 @@ def parse_args() -> argparse.Namespace:
         help="Directory to place per-sequence NPZ files (default: <root>/processed_npz).",
     )
     parser.add_argument(
-        "--map-ids",
+        "--seq-maps",
         type=str,
         nargs="*",
         default=None,
-        help="Optional list of map ids to process (default: all under output/3D_maps/).",
+        help="Optional list of full map tokens (e.g., Seq_007_map148). Overrides --sequences.",
     )
     parser.add_argument(
         "--sequences",
@@ -324,7 +324,25 @@ def main():
     video_root = args.video_root
     frames_root = args.frames_root
 
-    sequences = _find_sequences(root, args.sequences)
+    seq_map_ids = None
+    if args.seq_maps:
+        seq_map_ids = {}
+        seq_order: List[str] = []
+        for token in args.seq_maps:
+            match = re.match(r"^(Seq_.*)_map(\d+)$", token)
+            if not match:
+                raise ValueError(
+                    f"Invalid --seq-maps token '{token}'. Expected format: Seq_XXX_mapNNN"
+                )
+            seq_name, map_id = match.group(1), match.group(2)
+            if seq_name not in seq_map_ids:
+                seq_map_ids[seq_name] = []
+                seq_order.append(seq_name)
+            if map_id not in seq_map_ids[seq_name]:
+                seq_map_ids[seq_name].append(map_id)
+        sequences = [root / name for name in seq_order]
+    else:
+        sequences = _find_sequences(root, args.sequences)
     if not sequences:
         print(f"No sequences found under {root}")
         return 1
@@ -338,7 +356,11 @@ def main():
             print("STEP 1: Extracting keyframes from videos")
         print("=" * 60)
         for seq_dir in sequences:
-            map_ids = _find_map_ids(seq_dir, args.map_ids)
+            map_ids = (
+                seq_map_ids.get(seq_dir.name, [])
+                if seq_map_ids is not None
+                else _find_map_ids(seq_dir, None)
+            )
             if not map_ids:
                 print(f"[skip] {seq_dir.name}: no maps under output/3D_maps/")
                 continue
@@ -354,7 +376,11 @@ def main():
     print("=" * 60)
     
     for seq_dir in sequences:
-        map_ids = _find_map_ids(seq_dir, args.map_ids)
+        map_ids = (
+            seq_map_ids.get(seq_dir.name, [])
+            if seq_map_ids is not None
+            else _find_map_ids(seq_dir, None)
+        )
         if not map_ids:
             print(f"[skip] {seq_dir.name}: no maps under output/3D_maps/")
             continue
