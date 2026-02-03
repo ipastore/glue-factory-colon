@@ -420,17 +420,33 @@ class _PairDataset(torch.utils.data.Dataset):
         }
 
         
-        # Truncate features based on scores
-        # TODO: Try not to filter keypoints with valid3D
+        # Truncate features, prioritizing valid_3D keypoints
         max_num_features = self.conf.get("max_num_features", None)
         if max_num_features is None:
             raise ValueError("max_num_features must be not None")
-        if len(keypoints) > max_num_features:
-            indices = torch.topk(keypoint_scores, max_num_features).indices
-        elif len(keypoints) == 0:
+        num_features = len(keypoints)
+        if num_features == 0:
             indices = torch.tensor([], dtype=torch.long)
+        elif num_features <= max_num_features:
+            indices = torch.arange(num_features, dtype=torch.long)
         else:
-            indices = torch.arange(len(keypoints), dtype=torch.long)
+            valid_idx = torch.where(valid_3D_mask)[0]
+            invalid_idx = torch.where(~valid_3D_mask)[0]
+            num_valid = len(valid_idx)
+            if num_valid >= max_num_features:
+                indices = valid_idx[
+                    torch.topk(
+                        keypoint_scores[valid_idx], max_num_features
+                    ).indices
+                ]
+            else:
+                remaining = max_num_features - num_valid
+                top_invalid = invalid_idx[
+                    torch.topk(
+                        keypoint_scores[invalid_idx], remaining
+                    ).indices
+                ]
+                indices = torch.cat([valid_idx, top_invalid], dim=0)
         cache = {k: v[indices] for k, v in cache.items()}
 
         # Padding for cnsistent batching
