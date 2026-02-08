@@ -4,10 +4,10 @@ import numpy as np
 from pathlib import Path
 
 DEFAULT_NPZ_DIR = Path(
-    "/home/student/glue-factory-colon/data/Endomapper_CUDASIFT_DIC25/processed_npz"
+    "/media/student/HDD/nacho/glue-factory/data/slam-results-nacho/processed_npz"
 )
-DEFAULT_TRAIN_LIST = Path("gluefactory/datasets/endomapper_seq_lists/train_seqs.txt")
-DEFAULT_VAL_LIST = Path("gluefactory/datasets/endomapper_seq_lists/val_seqs.txt")
+DEFAULT_TRAIN_LIST = Path("gluefactory/datasets/endomapper_seq_lists/train_seqs_long.txt")
+DEFAULT_VAL_LIST = Path("gluefactory/datasets/endomapper_seq_lists/val_seqs_long.txt")
 OUTPUT_PATH = Path("docs/theory/map_sizes/map_sizes.txt")
 
 
