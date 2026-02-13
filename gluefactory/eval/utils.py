@@ -49,6 +49,13 @@ def eval_matches_epipolar(data: dict, pred: dict) -> dict:
     pts0, pts1, scores = get_matches_scores(kp0, kp1, m0, scores0)
 
     results = {}
+    if pts0.shape[0] == 0:
+        results["epi_prec@1e-4"] = float("nan")
+        results["epi_prec@5e-4"] = float("nan")
+        results["epi_prec@1e-3"] = float("nan")
+        results["num_matches"] = 0
+        results["num_keypoints"] = (kp0.shape[0] + kp1.shape[0]) / 2.0
+        return results
 
     # match metrics
     n_epi_err = generalized_epi_dist(
@@ -60,9 +67,9 @@ def eval_matches_epipolar(data: dict, pred: dict) -> dict:
         False,
         essential=True,
     )[0]
-    results["epi_prec@1e-4"] = (n_epi_err < 1e-4).float().mean().nan_to_num()
-    results["epi_prec@5e-4"] = (n_epi_err < 5e-4).float().mean().nan_to_num()
-    results["epi_prec@1e-3"] = (n_epi_err < 1e-3).float().mean().nan_to_num()
+    results["epi_prec@1e-4"] = (n_epi_err < 1e-4).float().mean().item()
+    results["epi_prec@5e-4"] = (n_epi_err < 5e-4).float().mean().item()
+    results["epi_prec@1e-3"] = (n_epi_err < 1e-3).float().mean().item()
 
     results["num_matches"] = pts0.shape[0]
     results["num_keypoints"] = (kp0.shape[0] + kp1.shape[0]) / 2.0
@@ -87,6 +94,16 @@ def eval_matches_depth(data: dict, pred: dict) -> dict:
 
     depth0 = data["view0"]["depth"]
     depth1 = data["view1"]["depth"]
+    if pts0.shape[0] == 0:
+        return {
+            "reproj_prec@1px": float("nan"),
+            "reproj_prec@3px": float("nan"),
+            "reproj_prec@5px": float("nan"),
+            "covisible": 0.0,
+            "covisible_percent": float("nan"),
+            "gt_match_recall@3px": float("nan"),
+            "gt_match_precision@3px": float("nan"),
+        }
 
     reproj_error, valid = symmetric_reprojection_error(
         pts0[None],
@@ -100,10 +117,16 @@ def eval_matches_depth(data: dict, pred: dict) -> dict:
     reproj_error, valid = reproj_error[0], valid[0]
 
     results = {}
-    reproj_error = reproj_error[valid].nan_to_num(nan=float("inf"))
-    results["reproj_prec@1px"] = (reproj_error < 1).float().mean().nan_to_num().item()
-    results["reproj_prec@3px"] = (reproj_error < 3).float().mean().nan_to_num().item()
-    results["reproj_prec@5px"] = (reproj_error < 5).float().mean().nan_to_num().item()
+    reproj_error = reproj_error[valid]
+    if reproj_error.numel() == 0:
+        results["reproj_prec@1px"] = float("nan")
+        results["reproj_prec@3px"] = float("nan")
+        results["reproj_prec@5px"] = float("nan")
+    else:
+        reproj_error = reproj_error.nan_to_num(nan=float("inf"))
+        results["reproj_prec@1px"] = (reproj_error < 1).float().mean().item()
+        results["reproj_prec@3px"] = (reproj_error < 3).float().mean().item()
+        results["reproj_prec@5px"] = (reproj_error < 5).float().mean().item()
     results["covisible"] = valid.float().sum().item()
     results["covisible_percent"] = valid.float().mean().item() * 100.0
 
@@ -120,17 +143,21 @@ def eval_matches_depth(data: dict, pred: dict) -> dict:
         mask = (gt_m > -1).float()
         return ((m == gt_m) * mask).sum(1) / (1e-8 + mask.sum(1))
 
-    results["gt_match_recall@3px"] = recall(
-        pred["matches0"][None], gt_pred["matches0"].cpu()
-    )[0].item()
+    recall_val = recall(pred["matches0"][None], gt_pred["matches0"].cpu())[0].item()
+    results["gt_match_recall@3px"] = (
+        float("nan") if pts0.shape[0] == 0 else float(recall_val)
+    )
 
     def precision(m, gt_m):
         mask = ((m > -1) & (gt_m >= -1)).float()
         return ((m == gt_m) * mask).sum(1) / (1e-8 + mask.sum(1))
 
-    results["gt_match_precision@3px"] = precision(
-        pred["matches0"][None], gt_pred["matches0"].cpu()
-    )[0].item()
+    precision_val = precision(pred["matches0"][None], gt_pred["matches0"].cpu())[
+        0
+    ].item()
+    results["gt_match_precision@3px"] = (
+        float("nan") if pts0.shape[0] == 0 else float(precision_val)
+    )
     return results
 
 
@@ -263,11 +290,24 @@ def eval_homography_dlt(data, pred):
 
 def eval_poses(pose_results, auc_ths, key, unit="°"):
     pose_aucs = {}
-    best_th = -1
+    best_th = None
     for th, results_i in pose_results.items():
-        pose_aucs[th] = AUCMetric(auc_ths, results_i[key]).compute()
-    mAAs = {k: np.mean(v) for k, v in pose_aucs.items()}
-    best_th = max(mAAs, key=mAAs.get)
+        vals = np.array(results_i[key], dtype=float)
+        vals = vals[np.isfinite(vals)]
+        pose_aucs[th] = (
+            AUCMetric(auc_ths, vals.tolist()).compute()
+            if vals.size > 0
+            else [np.nan for _ in auc_ths]
+        )
+    mAAs = {
+        k: (float(np.mean(v)) if np.any(np.isfinite(v)) else np.nan)
+        for k, v in pose_aucs.items()
+    }
+    valid_ths = [k for k, v in mAAs.items() if np.isfinite(v)]
+    if len(valid_ths) > 0:
+        best_th = max(valid_ths, key=lambda k: mAAs[k])
+    else:
+        best_th = list(pose_results.keys())[0]
 
     if len(pose_aucs) > -1:
         print("Tested ransac setup with following results:")
@@ -282,10 +322,10 @@ def eval_poses(pose_results, auc_ths, key, unit="°"):
     summaries[f"{key}_mAA"] = mAAs[best_th]
 
     for k, v in pose_results[best_th].items():
-        arr = np.array(v)
+        arr = np.array(v, dtype=float)
         if not np.issubdtype(np.array(v).dtype, np.number):
             continue
-        summaries[f"m{k}"] = round(np.median(arr), 3)
+        summaries[f"m{k}"] = round(np.nanmedian(arr), 3) if np.any(np.isfinite(arr)) else np.nan
     return summaries, best_th
 
 

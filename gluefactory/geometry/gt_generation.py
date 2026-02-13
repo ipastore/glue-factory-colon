@@ -221,7 +221,36 @@ def gt_matches_from_pose_depth(
         )
         m0 = -torch.ones_like(kp0[:, :, 0]).long()
         m1 = -torch.ones_like(kp1[:, :, 0]).long()
-        return assignment, m0, m1
+        depth0 = data["view0"].get("depth")
+        depth1 = data["view1"].get("depth")
+        if "depth_keypoints0" in kw and "depth_keypoints1" in kw:
+            d0 = kw["depth_keypoints0"]
+            d1 = kw["depth_keypoints1"]
+        else:
+            assert depth0 is not None
+            assert depth1 is not None
+            d0, _ = sample_depth(kp0, depth0)
+            d1, _ = sample_depth(kp1, depth1)
+
+        proj_0to1 = torch.empty_like(kp0)
+        proj_1to0 = torch.empty_like(kp1)
+        visible0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
+        visible1 = torch.zeros(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
+        reward = torch.zeros_like(assignment, dtype=torch.float32)
+        return {
+            "assignment": assignment,
+            "reward": reward,
+            "matches0": m0,
+            "matches1": m1,
+            "matching_scores0": (m0 > -1).float(),
+            "matching_scores1": (m1 > -1).float(),
+            "depth_keypoints0": d0,
+            "depth_keypoints1": d1,
+            "proj_0to1": proj_0to1,
+            "proj_1to0": proj_1to0,
+            "visible0": visible0,
+            "visible1": visible1,
+        }
     camera0, camera1 = data["view0"]["camera"], data["view1"]["camera"]
     T_0to1, T_1to0 = data["T_0to1"], data.get("T_1to0", data["T_0to1"].inv())
 

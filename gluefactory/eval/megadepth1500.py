@@ -57,8 +57,8 @@ class MegaDepth1500Pipeline(EvalPipeline):
     export_keys = [
         "keypoints0",
         "keypoints1",
-        "keypoint_scores0",
-        "keypoint_scores1",
+        # "keypoint_scores0",
+        # "keypoint_scores1",
         "matches0",
         "matches1",
         "matching_scores0",
@@ -103,6 +103,8 @@ class MegaDepth1500Pipeline(EvalPipeline):
         """Run the eval on cached predictions"""
         conf = self.conf.eval
         results = defaultdict(list)
+        counts = defaultdict(int)
+        min_matches_for_pose = 5
         test_thresholds = (
             ([conf.ransac_th] if conf.ransac_th > 0 else [0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
             if not isinstance(conf.ransac_th, Iterable)
@@ -111,18 +113,41 @@ class MegaDepth1500Pipeline(EvalPipeline):
         pose_results = defaultdict(lambda: defaultdict(list))
         cache_loader = CacheLoader({"path": str(pred_file), "collate": None}).eval()
         for i, data in enumerate(tqdm(loader)):
+            counts["num_total_pairs"] += 1
             pred = cache_loader(data)
+            num_kpts0 = int(pred["keypoints0"].shape[0])
+            num_kpts1 = int(pred["keypoints1"].shape[0])
+            num_matches = int((pred["matches0"] > -1).sum().item())
+            if num_kpts0 == 0 or num_kpts1 == 0:
+                counts["num_pairs_no_keypoints"] += 1
+            if num_matches == 0:
+                counts["num_pairs_no_matches"] += 1
             # add custom evaluations here
             results_i = eval_matches_epipolar(data, pred)
+            if np.isfinite(results_i["epi_prec@1e-3"]):
+                counts["num_pairs_valid_epipolar"] += 1
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
+                if np.isfinite(results_i["reproj_prec@1px"]):
+                    counts["num_pairs_valid_reprojection"] += 1
             for th in test_thresholds:
-                pose_results_i = eval_relative_pose_robust(
-                    data,
-                    pred,
-                    {"estimator": conf.estimator, "ransac_th": th},
-                )
+                if num_matches < min_matches_for_pose:
+                    pose_results_i = {
+                        "rel_pose_error": float("nan"),
+                        "ransac_inl": float("nan"),
+                        "ransac_inl%": float("nan"),
+                    }
+                else:
+                    pose_results_i = eval_relative_pose_robust(
+                        data,
+                        pred,
+                        {"estimator": conf.estimator, "ransac_th": th},
+                    )
                 [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
+            if num_matches < min_matches_for_pose:
+                counts["num_pairs_pose_skipped_too_few_matches"] += 1
+            else:
+                counts["num_pairs_pose_attempted"] += 1
 
             # we also store the names for later reference
             results_i["names"] = data["name"][0]
@@ -139,7 +164,7 @@ class MegaDepth1500Pipeline(EvalPipeline):
             arr = np.array(v)
             if not np.issubdtype(np.array(v).dtype, np.number):
                 continue
-            summaries[f"m{k}"] = round(np.mean(arr), 3)
+            summaries[f"m{k}"] = round(np.nanmean(arr), 3) if np.any(np.isfinite(arr)) else np.nan
 
         best_pose_results, best_th = eval_poses(
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
@@ -149,6 +174,8 @@ class MegaDepth1500Pipeline(EvalPipeline):
             **summaries,
             **best_pose_results,
         }
+        for k, v in counts.items():
+            summaries[k] = int(v)
 
         figures = {
             "pose_recall": plot_cumulative(
