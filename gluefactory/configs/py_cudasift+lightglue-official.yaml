@@ -1,0 +1,40 @@
+model:
+    name: two_view_pipeline
+    extractor:
+      name: extractors.sift
+      backend: py_cudasift
+      max_num_keypoints: 4096
+      detection_threshold: 0.0066667  # 0.0066667 from COLMAP   
+      rootsift: False
+      nms_radius: 0
+      first_octave: -1           
+      num_octaves: 4            #4 Default COLMAP
+      init_blur: 1.0 #Used by pycudasift 
+      extractor_channel: grayscale
+
+    matcher:
+      name: matchers.lightglue_pretrained
+      features: sift
+      depth_confidence: -1
+      width_confidence: -1
+      filter_threshold: 0.1
+      input_dim: 128      # if features == sift, overwwritten to 128 
+      add_scale_ori: true   # if features == sift, overwwritten to true
+      # weights: outputs/training/long26_gt_pos_null_10_lg1e-03_lr5e-05_5bin/long26_gt_pos_null_10_lg1e-03_lr5e-05_5bin_generic_dict.pt
+      weights: null
+benchmarks:
+    megadepth1500:
+      data:
+        preprocessing:
+          side: long
+          resize: 1600
+      eval:
+        estimator: opencv
+        ransac_th: 0.5
+    hpatches:
+      eval:
+        estimator: opencv
+        ransac_th: 0.5
+      model:
+        extractor:
+          max_num_keypoints: 1024  # overwrite config above

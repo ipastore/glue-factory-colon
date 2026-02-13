@@ -11,6 +11,11 @@ try:
 except ImportError:
     pycolmap = None
 
+try:
+    import cudasift_py
+except ImportError:
+    cudasift_py = None
+
 from ..base_model import BaseModel
 from ..utils.misc import pad_to_length
 
@@ -82,11 +87,13 @@ class SIFT(BaseModel):
         "rootsift": True,
         "nms_radius": 0,  # None to disable filtering entirely.
         "max_num_keypoints": 4096,
-        "backend": "opencv",  # in {opencv, pycolmap, pycolmap_cpu, pycolmap_cuda}
+        "backend": "opencv",  # in {opencv, pycolmap, pycolmap_cpu, pycolmap_cuda, py_cudasift, py_CudaSift, py_Cudasift}
         "detection_threshold": 0.0066667,  # from COLMAP
         "edge_threshold": 10,
         "first_octave": -1,  # only used by pycolmap, the default of COLMAP
         "num_octaves": 4,
+        "init_blur": 1.0,  # used by py_cudasift
+        "extractor_channel": "grayscale",  # in {grayscale, red, green, blue}
         "force_num_keypoints": False,
     }
 
@@ -159,8 +166,22 @@ class SIFT(BaseModel):
                 edgeThreshold=self.conf.edge_threshold,
                 nOctaveLayers=self.conf.num_octaves,
             )
+        elif backend in {"py_cudasift", "py_Cudasift", "py_CudaSift"}:
+            if cudasift_py is None:
+                raise ImportError(
+                    "Cannot find module cudasift_py: install/build the pybind11 wrapper "
+                    "or use another backend."
+                )
         else:
-            backends = {"opencv", "pycolmap", "pycolmap_cpu", "pycolmap_cuda"}
+            backends = {
+                "opencv",
+                "pycolmap",
+                "pycolmap_cpu",
+                "pycolmap_cuda",
+                "py_cudasift",
+                "py_Cudasift",
+                "py_CudaSift"
+            }
             raise ValueError(
                 f"Unknown backend: {backend} not in " f"{{{','.join(backends)}}}."
             )
@@ -186,6 +207,19 @@ class SIFT(BaseModel):
             keypoints, scores, scales, angles, descriptors = run_opencv_sift(
                 self.sift, (image_np * 255.0).astype(np.uint8)
             )
+        elif self.conf.backend in {"py_cudasift", "py_Cudasift", "py_CudaSift"}:
+            keypoints, scales, angles, scores, descriptors = cudasift_py.extract(
+                image_np.astype(np.float32, copy=False),
+                num_octaves=self.conf.num_octaves,
+                init_blur=float(self.conf.init_blur),
+                thresh=self.conf.detection_threshold,
+                lowest_scale=float(self.conf.first_octave),
+                max_pts=self.conf.max_num_keypoints,
+                #edge_threshold is hardoceded at 10 inside CudaSift
+            )
+            keypoints = keypoints + 0.5         # Keypoints are not in corner convention in CudaSift
+            angles = np.deg2rad(angles)
+
         pred = {
             "keypoints": keypoints,
             "scales": scales,
@@ -255,7 +289,18 @@ class SIFT(BaseModel):
     def _forward(self, data: dict) -> dict:
         image = data["image"]
         if image.shape[1] == 3:
-            image = rgb_to_grayscale(image)
+            if self.conf.extractor_channel == "grayscale":
+                image = rgb_to_grayscale(image)
+            else:
+                channel_map = {"red": 0, "green": 1, "blue": 2}
+                if self.conf.extractor_channel not in channel_map:
+                    raise ValueError(
+                        "Unknown extractor_channel: "
+                        f"{self.conf.extractor_channel} not in "
+                        "{grayscale,red,green,blue}."
+                    )
+                channel_idx = channel_map[self.conf.extractor_channel]
+                image = image[:, channel_idx : channel_idx + 1, ...]
         device = image.device
         image = image.cpu()
         pred = []

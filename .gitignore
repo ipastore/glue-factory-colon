@@ -15,3 +15,5 @@ pytest.xml
 .coverage
 /docs/
 log*
+ThirdParty/
+gluefactory/datasets/endomapper_seq_lists/*
