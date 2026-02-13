@@ -35,6 +35,7 @@ def parse_config_path(name_or_path: Optional[str], defaults: str) -> Path:
 def extract_benchmark_conf(conf, benchmark):
     mconf = OmegaConf.create(
         {
+            "checkpoint": conf.get("checkpoint", None),
             "model": conf.get("model", {}),
         }
     )

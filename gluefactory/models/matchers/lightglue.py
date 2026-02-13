@@ -293,6 +293,15 @@ class MatchAssignment(nn.Module):
 
 def filter_matches(scores: torch.Tensor, th: float):
     """obtain matches from a log assignment matrix [Bx M+1 x N+1]"""
+    b, mp1, np1 = scores.shape
+    m, n = mp1 - 1, np1 - 1
+    if m == 0 or n == 0:
+        m0 = torch.full((b, m), -1, device=scores.device, dtype=torch.long)
+        m1 = torch.full((b, n), -1, device=scores.device, dtype=torch.long)
+        mscores0 = scores.new_zeros((b, m))
+        mscores1 = scores.new_zeros((b, n))
+        return m0, m1, mscores0, mscores1
+
     max0, max1 = scores[:, :-1, :-1].max(2), scores[:, :-1, :-1].max(1)
     m0, m1 = max0.indices, max1.indices
     indices0 = torch.arange(m0.shape[1], device=m0.device)[None]
