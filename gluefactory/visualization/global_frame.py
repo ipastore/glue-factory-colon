@@ -183,7 +183,11 @@ class GlobalFrame:
             exit(0)
 
     def spawn_child(self, model_name, ind, event=None):
-        [line.remove() for line in self.lines]
+        for line in self.lines:
+            try:
+                line.remove()
+            except NotImplementedError:
+                pass
         self.lines = []
 
         x_source = self.scatters[model_name].get_xdata()[ind]
@@ -239,7 +243,11 @@ class GlobalFrame:
                 if cont:
                     ind = ind["ind"][0]
                     xdata, ydata = s.get_data()
-                    [line.remove() for line in self.lines]
+                    for line in self.lines:
+                        try:
+                            line.remove()
+                        except NotImplementedError:
+                            pass
                     self.lines = []
 
                     for oname in self.names:
