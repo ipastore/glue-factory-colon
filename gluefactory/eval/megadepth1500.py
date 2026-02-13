@@ -120,16 +120,14 @@ class MegaDepth1500Pipeline(EvalPipeline):
             num_matches = int((pred["matches0"] > -1).sum().item())
             if num_kpts0 == 0 or num_kpts1 == 0:
                 counts["num_pairs_no_keypoints"] += 1
-            if num_matches == 0:
-                counts["num_pairs_no_matches"] += 1
+            if num_matches > 0:
+                counts["valid_pairs_epi"] += 1
             # add custom evaluations here
             results_i = eval_matches_epipolar(data, pred)
-            if np.isfinite(results_i["epi_prec@1e-3"]):
-                counts["num_pairs_valid_epipolar"] += 1
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
                 if np.isfinite(results_i["reproj_prec@1px"]):
-                    counts["num_pairs_valid_reprojection"] += 1
+                    counts["valid_pairs_reproj"] += 1
             for th in test_thresholds:
                 if num_matches < min_matches_for_pose:
                     pose_results_i = {
@@ -144,10 +142,8 @@ class MegaDepth1500Pipeline(EvalPipeline):
                         {"estimator": conf.estimator, "ransac_th": th},
                     )
                 [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
-            if num_matches < min_matches_for_pose:
-                counts["num_pairs_pose_skipped_too_few_matches"] += 1
-            else:
-                counts["num_pairs_pose_attempted"] += 1
+            if num_matches >= min_matches_for_pose:
+                counts["valid_pairs_pose"] += 1
 
             # we also store the names for later reference
             results_i["names"] = data["name"][0]
@@ -170,12 +166,28 @@ class MegaDepth1500Pipeline(EvalPipeline):
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
         )
         results = {**results, **pose_results[best_th]}
-        summaries = {
-            **summaries,
-            **best_pose_results,
-        }
-        for k, v in counts.items():
-            summaries[k] = int(v)
+        combined_summaries = {**summaries, **best_pose_results}
+        summaries = {"num_total_pairs": int(counts["num_total_pairs"])}
+        inserted_epi = False
+        inserted_reproj = False
+        inserted_pose = False
+        for k, v in combined_summaries.items():
+            summaries[k] = v
+            if k == "mepi_prec@1e-3":
+                summaries["valid_pairs_epi"] = int(counts["valid_pairs_epi"])
+                inserted_epi = True
+            if k == "mreproj_prec@5px":
+                summaries["valid_pairs_reproj"] = int(counts["valid_pairs_reproj"])
+                inserted_reproj = True
+            if k == "mrel_pose_error":
+                summaries["valid_pairs_pose"] = int(counts["valid_pairs_pose"])
+                inserted_pose = True
+        if not inserted_epi:
+            summaries["valid_pairs_epi"] = int(counts["valid_pairs_epi"])
+        if not inserted_reproj:
+            summaries["valid_pairs_reproj"] = int(counts["valid_pairs_reproj"])
+        if not inserted_pose:
+            summaries["valid_pairs_pose"] = int(counts["valid_pairs_pose"])
 
         figures = {
             "pose_recall": plot_cumulative(
