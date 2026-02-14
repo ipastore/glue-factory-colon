@@ -14,6 +14,7 @@ ARG PYTORCH_VERSION=1.13.1
 ARG TORCHVISION_VERSION=0.14.1
 ARG CUDASIFT_REPO=https://github.com/ipastore/CudaSift-py-wrapper.git
 ARG CUDASIFT_CUDA_ARCHS=70
+ARG CUDASIFT_DIR=/opt/CudaSift-py-wrapper
 ARG USERNAME=dev
 ARG USER_UID=1000
 
@@ -109,11 +110,12 @@ RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     python -m pip install --no-cache-dir poselib
 
 # Build CudaSift Python wrapper in release mode and validate import.
-RUN mkdir -p /workspace/ThirdParty && \
-    git clone "${CUDASIFT_REPO}" /workspace/ThirdParty/CudaSift-py-wrapper && \
+# Keep it outside /workspace so bind-mounting /workspace at runtime does not hide it.
+RUN mkdir -p /opt && \
+    git clone "${CUDASIFT_REPO}" "${CUDASIFT_DIR}" && \
     . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
-    cd /workspace/ThirdParty/CudaSift-py-wrapper && \
+    cd "${CUDASIFT_DIR}" && \
     mkdir -p build && \
     cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CUDASIFT_CUDA_ARCHS}" .. && \
@@ -121,7 +123,7 @@ RUN mkdir -p /workspace/ThirdParty && \
     python -c "import cudasift_py; print(cudasift_py.__file__)"
 
 # Durable path to cudasift_py for every shell/session.
-ENV PYTHONPATH="/workspace/ThirdParty/CudaSift-py-wrapper/build"
+ENV PYTHONPATH="${CUDASIFT_DIR}/build"
 
 # Create default non-root user (configurable via build args).
 RUN useradd -m -u "${USER_UID}" -s /bin/bash "${USERNAME}" && \
