@@ -1,5 +1,6 @@
 # Multi-GPU development image for Glue Factory with CUDA-enabled Pycolmap
-ARG CUDA_IMAGE=nvidia/cuda:11.4.3-cudnn8-runtime-ubuntu20.04
+# plus CudaSift Python wrapper (cudasift_py).
+ARG CUDA_IMAGE=nvidia/cuda:11.4.3-cudnn8-devel-ubuntu20.04
 FROM ${CUDA_IMAGE}
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -11,6 +12,8 @@ ARG PYTHON_VERSION=3.10
 ARG CUDATOOLKIT_VERSION=11.4
 ARG PYTORCH_VERSION=1.13.1
 ARG TORCHVISION_VERSION=0.14.1
+ARG CUDASIFT_REPO=https://github.com/ipastore/CudaSift-py-wrapper.git
+ARG CUDASIFT_CUDA_ARCHS=70
 ARG USERNAME=dev
 ARG USER_UID=1000
 
@@ -19,7 +22,7 @@ ENV CONDA_DIR=${CONDA_DIR} \
     PATH=${CONDA_DIR}/bin:$PATH \
     CONDA_OVERRIDE_CUDA=${CUDATOOLKIT_VERSION}
 
-# Base system packages required for building Python wheels and OpenCV runtime
+# Base system packages required for building Python wheels, OpenCV runtime, and CudaSift wrapper.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
@@ -30,6 +33,7 @@ RUN apt-get update && \
         git \
         libceres-dev \
         libeigen3-dev \
+        libopencv-dev \
         libgl1 \
         libglib2.0-0 \
         libsm6 \
@@ -39,7 +43,7 @@ RUN apt-get update && \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Miniconda and create project environment
+# Install Miniconda and create project environment.
 RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-py310_23.11.0-2-Linux-x86_64.sh -O /tmp/miniconda.sh && \
     bash /tmp/miniconda.sh -b -p "${CONDA_DIR}" && \
     rm /tmp/miniconda.sh && \
@@ -51,17 +55,18 @@ SHELL ["/bin/bash", "-lc"]
 RUN conda create -y -n "${CONDA_ENV}" python=${PYTHON_VERSION} pip && \
     conda clean -afy
 
-# Install PyTorch, CUDA toolkit, and CUDA-enabled Pycolmap from conda-forge
+# Install PyTorch, CUDA toolkit, CUDA-enabled Pycolmap, and pybind11 from conda-forge.
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
     conda install -y --strict-channel-priority -c conda-forge \
         cudatoolkit=${CUDATOOLKIT_VERSION} \
         pytorch=${PYTORCH_VERSION} \
         torchvision=${TORCHVISION_VERSION} \
+        pybind11 \
         'pycolmap>=0.4.0' && \
     conda clean -afy
 
-# Ensure pycolmap exposes CUDA support at runtime
+# Ensure pycolmap exposes CUDA support at runtime.
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
     python - <<'PYCODE'
@@ -76,13 +81,12 @@ print(f"torch.cuda available: {torch.cuda.is_available()}")
 print(f"CUDA devices visible to torch: {torch.cuda.device_count()}")
 PYCODE
 
-
 WORKDIR /workspace
 
-# Copy repository contents
+# Copy repository contents.
 COPY . .
 
-# Install Glue Factory and optional extras (except pycolmap which comes from conda)
+# Install Glue Factory and optional extras (except pycolmap which comes from conda).
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
     python -m pip install --no-cache-dir --upgrade pip && \
@@ -104,8 +108,22 @@ RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     python -m pip install --no-cache-dir --no-deps "lightglue @ git+https://github.com/cvg/LightGlue.git" && \
     python -m pip install --no-cache-dir poselib
 
+# Build CudaSift Python wrapper in release mode and validate import.
+RUN mkdir -p /workspace/ThirdParty && \
+    git clone "${CUDASIFT_REPO}" /workspace/ThirdParty/CudaSift-py-wrapper && \
+    . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
+    conda activate "${CONDA_ENV}" && \
+    cd /workspace/ThirdParty/CudaSift-py-wrapper && \
+    mkdir -p build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CUDASIFT_CUDA_ARCHS}" .. && \
+    make -j"$(nproc)" && \
+    python -c "import cudasift_py; print(cudasift_py.__file__)"
 
-# Create default non-root user (configurable via build args)
+# Durable path to cudasift_py for every shell/session.
+ENV PYTHONPATH="/workspace/ThirdParty/CudaSift-py-wrapper/build"
+
+# Create default non-root user (configurable via build args).
 RUN useradd -m -u "${USER_UID}" -s /bin/bash "${USERNAME}" && \
     chmod 755 "/home/${USERNAME}" && \
     chown -R "${USERNAME}:${USERNAME}" /workspace
