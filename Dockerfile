@@ -117,7 +117,7 @@ RUN mkdir -p /workspace/ThirdParty && \
     mkdir -p build && \
     cd build && \
     cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="${CUDASIFT_CUDA_ARCHS}" .. && \
-    make -j"$(nproc)" && \
+    cmake --build . --target cudasift_py -- -j1 && \
     python -c "import cudasift_py; print(cudasift_py.__file__)"
 
 # Durable path to cudasift_py for every shell/session.
