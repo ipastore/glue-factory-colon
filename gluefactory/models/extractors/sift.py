@@ -284,6 +284,7 @@ class SIFT(BaseModel):
                 scores = pad_to_length(
                     pred["keypoint_scores"], num_points, -1, mode="zeros"
                 )
+                pred["keypoint_scores"] = scores
         return pred
 
     def _forward(self, data: dict) -> dict:
