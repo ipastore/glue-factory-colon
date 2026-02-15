@@ -1122,7 +1122,7 @@ def training(rank, conf, output_dir, args):
                                     "epoch_idx": epoch,
                                     "plot_ignored_predictions": conf.train.plot_ignored_predictions,
                                 }
-                                if conf.train.plot is not None
+                                if requires_oob_plot
                                 else None
                             )
                         ),
@@ -1197,7 +1197,7 @@ def training(rank, conf, output_dir, args):
                                         "epoch_idx": epoch,
                                         "plot_ignored_predictions": conf.train.plot_ignored_predictions,
                                     }
-                                    if conf.train.plot is not None
+                                    if requires_oob_plot
                                     else None
                                 )
                             ),
@@ -1257,7 +1257,7 @@ def training(rank, conf, output_dir, args):
                                     "epoch_idx": epoch,
                                     "plot_ignored_predictions": conf.train.plot_ignored_predictions,
                                 }
-                                if conf.train.plot is not None
+                                if requires_oob_plot
                                 else None
                             )
                         ),
