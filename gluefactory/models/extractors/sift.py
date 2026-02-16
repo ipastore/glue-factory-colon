@@ -208,6 +208,7 @@ class SIFT(BaseModel):
                 self.sift, (image_np * 255.0).astype(np.uint8)
             )
         elif self.conf.backend in {"py_cudasift", "py_Cudasift", "py_CudaSift"}:
+            image_np = np.clip(image_np * 255.0, 0.0, 255.0)
             keypoints, scales, angles, scores, descriptors = cudasift_py.extract(
                 image_np.astype(np.float32, copy=False),
                 num_octaves=self.conf.num_octaves,
