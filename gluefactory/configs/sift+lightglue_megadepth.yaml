@@ -27,6 +27,8 @@ model:
         name: extractors.sift
         backend: pycolmap_cuda
         max_num_keypoints: 2048
+        filter_kpts_with_wrapper: false
+        filter_with_scale_weighting: false
         force_num_keypoints: True
         nms_radius: 3
         trainable: False

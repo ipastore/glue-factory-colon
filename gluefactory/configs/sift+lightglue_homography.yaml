@@ -3,8 +3,8 @@ data:
     data_dir: revisitop1m
     train_size: 150000
     val_size: 2000
-    batch_size: 64
-    num_workers: 14
+    batch_size: 16
+    num_workers: 8
     homography:
         difficulty: 0.7
         max_angle: 45
@@ -14,11 +14,19 @@ model:
     name: two_view_pipeline
     extractor:
         name: extractors.sift
-        backend: pycolmap_cuda
+        backend: py_cudasift
         max_num_keypoints: 1024
         force_num_keypoints: True
         nms_radius: 3
         trainable: False
+        detection_threshold: 0.4  # 0.0066667 from COLMAP   
+        rootsift: true
+        first_octave: 0           
+        num_octaves: 3            #4 Default COLMAP
+        init_blur: 2.0 #Used by pycudasift 
+        filter_kpts_with_wrapper: false
+        filter_with_scale_weighting: false
+        extractor_channel: grayscale
     ground_truth:
         name: matchers.homography_matcher
         th_positive: 3

@@ -93,6 +93,8 @@ class SIFT(BaseModel):
         "first_octave": -1,  # only used by pycolmap, the default of COLMAP
         "num_octaves": 4,
         "init_blur": 1.0,  # used by py_cudasift
+        "filter_kpts_with_wrapper": True,  # only used by py_cudasift
+        "filter_with_scale_weighting": False,  # if true: rank by abs(score) * scale
         "extractor_channel": "grayscale",  # in {grayscale, red, green, blue}
         "force_num_keypoints": False,
     }
@@ -200,8 +202,8 @@ class SIFT(BaseModel):
             if scores is not None and (
                 self.conf.backend == "pycolmap_cpu" or not pycolmap.has_cuda
             ):
-                # Set the scores as a combination of abs. response and scale.
-                scores = np.abs(scores) * scales
+                # Normalize scores to non-negative; optional scale weighting is applied later.
+                scores = np.abs(scores)
         elif self.conf.backend == "opencv":
             # TODO: Check if opencv keypoints are already in corner convention
             keypoints, scores, scales, angles, descriptors = run_opencv_sift(
@@ -209,17 +211,23 @@ class SIFT(BaseModel):
             )
         elif self.conf.backend in {"py_cudasift", "py_Cudasift", "py_CudaSift"}:
             image_np = np.clip(image_np * 255.0, 0.0, 255.0)
+            max_pts = (
+                self.conf.max_num_keypoints
+                if self.conf.filter_kpts_with_wrapper
+                else 100000
+            )
             keypoints, scales, angles, scores, descriptors = cudasift_py.extract(
                 image_np.astype(np.float32, copy=False),
                 num_octaves=self.conf.num_octaves,
                 init_blur=float(self.conf.init_blur),
                 thresh=self.conf.detection_threshold,
                 lowest_scale=float(self.conf.first_octave),
-                max_pts=self.conf.max_num_keypoints,
+                max_pts=max_pts,
                 #edge_threshold is hardoceded at 10 inside CudaSift
             )
             keypoints = keypoints + 0.5         # Keypoints are not in corner convention in CudaSift
             angles = np.deg2rad(angles)
+            scores = np.abs(scores)
 
         pred = {
             "keypoints": keypoints,
@@ -256,7 +264,10 @@ class SIFT(BaseModel):
         if num_points is not None and len(pred["keypoints"]) > num_points:
             # Prefer keypoint scores if available; otherwise fall back to scales
             if "keypoint_scores" in pred:
-                indices = torch.topk(pred["keypoint_scores"], num_points).indices
+                ranking_scores = pred["keypoint_scores"]
+                if self.conf.filter_with_scale_weighting:
+                    ranking_scores = ranking_scores * pred["scales"]
+                indices = torch.topk(ranking_scores, num_points).indices
             else:
                 # Use scales as a proxy for keypoint quality when scores are unavailable
                 indices = torch.topk(pred["scales"], num_points).indices

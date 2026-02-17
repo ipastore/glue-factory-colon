@@ -3,16 +3,21 @@ checkpoint: outputs/training/long26_gt_pos_null_10_lg1e-03_lr5e-05_5bin/checkpoi
 model:
     name: two_view_pipeline
     extractor:
-      name: extractors.sift
-      backend: py_cudasift
-      max_num_keypoints: 4096
-      detection_threshold: 0.0000667  # 0.0066667 from COLMAP   
-      rootsift: true
-      nms_radius: 0
-      first_octave: -1           
-      num_octaves: 4            #4 Default COLMAP
-      init_blur: 1.0 #Used by pycudasift 
-      extractor_channel: grayscale
+        name: extractors.sift
+        backend: py_cudasift
+        max_num_keypoints: 4096
+        force_num_keypoints: True
+        nms_radius: 0
+        trainable: False
+        detection_threshold: 0.4  # 0.0066667 from COLMAP   
+        rootsift: true
+        first_octave: -1           # Same for Morlana and COLMAP
+        num_octaves: 3            #4 Default COLMAP
+        init_blur: 2.0 #Used by pycudasift; 1 COLMAP
+        filter_kpts_with_wrapper: false
+        filter_with_scale_weighting: false
+        extractor_channel: grayscale
+
 
     matcher:
       name: matchers.lightglue
