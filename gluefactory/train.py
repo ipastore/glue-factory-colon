@@ -7,9 +7,11 @@ Author: Paul-Edouard Sarlin (skydes)
 import argparse
 import copy
 import math
+import os
 import re
 import shutil
 import signal
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from pydoc import locate
@@ -90,6 +92,46 @@ default_train_conf = {
     "log_gt_pos_neg_ign_overfit_once": False,
 }
 default_train_conf = OmegaConf.create(default_train_conf)
+
+
+def sanitize_distributed_cuda_nccl_env():
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if conda_prefix:
+        conda_lib = str(Path(conda_prefix) / "lib")
+        ld_parts = [p for p in os.environ.get("LD_LIBRARY_PATH", "").split(":") if p]
+        ld_parts = [conda_lib] + [p for p in ld_parts if p != conda_lib]
+        os.environ["LD_LIBRARY_PATH"] = ":".join(dict.fromkeys(ld_parts))
+    os.environ.pop("LD_PRELOAD", None)
+    os.environ.pop("NCCL_LIBRARY", None)
+
+
+def maybe_log_distributed_cuda_nccl_runtime(rank):
+    if os.environ.get("GLUEFACTORY_DEBUG_CUDA_NCCL", "0") != "1":
+        return
+
+    logger.info(
+        "[rank %s] Torch %s | torch.cuda=%s | nccl=%s | CONDA_PREFIX=%s | LD_LIBRARY_PATH=%s | LD_PRELOAD=%s | NCCL_LIBRARY=%s",
+        rank,
+        torch.__version__,
+        torch.version.cuda,
+        torch.cuda.nccl.version() if torch.cuda.is_available() else None,
+        os.environ.get("CONDA_PREFIX"),
+        os.environ.get("LD_LIBRARY_PATH"),
+        os.environ.get("LD_PRELOAD"),
+        os.environ.get("NCCL_LIBRARY"),
+    )
+
+    libs = [
+        torch._C.__file__,
+        str(Path(torch.__file__).parent / "lib" / "libtorch_cuda.so"),
+    ]
+    for lib in libs:
+        if not Path(lib).exists():
+            continue
+        out = subprocess.getoutput(
+            f"ldd {lib} | grep -Ei 'nccl|cuda|cudart|c10|libstdc\\+\\+'"
+        )
+        logger.info("[rank %s] ldd %s\n%s", rank, lib, out)
 
 
 @torch.no_grad()
@@ -595,6 +637,7 @@ def training(rank, conf, output_dir, args):
 
     data_conf = copy.deepcopy(conf.data)
     if args.distributed:
+        sanitize_distributed_cuda_nccl_env()
         logger.info(f"Training in distributed mode with {args.n_gpus} GPUs")
         assert torch.cuda.is_available()
         device = rank
@@ -605,6 +648,7 @@ def training(rank, conf, output_dir, args):
             init_method="file://" + str(args.lock_file),
         )
         torch.cuda.set_device(device)
+        maybe_log_distributed_cuda_nccl_runtime(rank)
 
         # adjust batch size and num of workers since these are per GPU
         if "batch_size" in data_conf:
@@ -1370,6 +1414,7 @@ if __name__ == "__main__":
         mod_dir = Path(__import__(str(module)).__file__).parent
         shutil.copytree(mod_dir, output_dir / module, dirs_exist_ok=True)
     if args.distributed:
+        sanitize_distributed_cuda_nccl_env()
         args.n_gpus = torch.cuda.device_count()
         args.lock_file = output_dir / "distributed_lock"
         if args.lock_file.exists():
