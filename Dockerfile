@@ -61,6 +61,7 @@ RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
     conda install -y --strict-channel-priority -c conda-forge \
         cudatoolkit=${CUDATOOLKIT_VERSION} \
+        nccl=2.14.3 \
         pytorch=${PYTORCH_VERSION} \
         torchvision=${TORCHVISION_VERSION} \
         pybind11 \
