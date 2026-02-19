@@ -96,6 +96,7 @@ class SIFT(BaseModel):
         "filter_kpts_with_wrapper": True,  # only used by py_cudasift
         "filter_with_scale_weighting": False,  # if true: rank by abs(score) * scale
         "extractor_channel": "grayscale",  # in {grayscale, red, green, blue}
+        "sort_scales_low_to_large": False,  # False: large->small, True: small->large
         "force_num_keypoints": False,
     }
 
@@ -273,12 +274,22 @@ class SIFT(BaseModel):
                 indices = torch.topk(pred["scales"], num_points).indices
             pred = {k: v[indices] for k, v in pred.items()}
 
+        if len(pred["scales"]) > 0:
+            sort_indices = torch.argsort(
+                pred["scales"], descending=not self.conf.sort_scales_low_to_large
+            )
+            pred = {k: v[sort_indices] for k, v in pred.items()}
+
         # # Prints to debug to find optimal parameters for endomapper
         # num_keypoints = len(pred["keypoints"])
         # print(f"Number of keypoints: {num_keypoints}") 
 
+        detected_keypoints = len(pred["keypoints"])
+        padded_keypoints = 0
+
         if self.conf.force_num_keypoints:
-            num_points = max(self.conf.max_num_keypoints, len(pred["keypoints"]))
+            num_points = max(self.conf.max_num_keypoints, detected_keypoints)
+            padded_keypoints = max(0, num_points - detected_keypoints)
 
             pred["keypoints"] = pad_to_length(
                 pred["keypoints"],
@@ -297,6 +308,8 @@ class SIFT(BaseModel):
                     pred["keypoint_scores"], num_points, -1, mode="zeros"
                 )
                 pred["keypoint_scores"] = scores
+        pred["num_keypoints_detected"] = torch.tensor(detected_keypoints)
+        pred["num_keypoints_padded"] = torch.tensor(padded_keypoints)
         return pred
 
     def _forward(self, data: dict) -> dict:

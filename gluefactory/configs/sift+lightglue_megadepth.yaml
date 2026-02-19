@@ -14,7 +14,7 @@ data:
     read_depth: true
     read_image: true
     batch_size: 2 #32
-    num_workers: 8 #14
+    num_workers: 0 #14
     load_features:
         do: false  # enable this if you have cached predictions
         path: exports/megadepth-undist-depth-r1024_pycolmap_SIFTGPU-nms3-fixed-k2048/{scene}.h5
@@ -25,13 +25,21 @@ model:
     name: two_view_pipeline
     extractor:
         name: extractors.sift
-        backend: pycolmap_cuda
+        backend: py_cudasift
         max_num_keypoints: 2048
-        filter_kpts_with_wrapper: false
-        filter_with_scale_weighting: false
-        force_num_keypoints: True
-        nms_radius: 3
-        trainable: False
+        force_num_keypoints: true
+        nms_radius: null
+        trainable: false
+        detection_threshold: 1.7
+        rootsift: true
+        first_octave: -1
+        num_octaves: 6
+        init_blur: 1.0
+        filter_kpts_with_wrapper: true          # only for py_cudasift
+        filter_with_scale_weighting: true      # for all that has scores
+        extractor_channel: grayscale
+        sort_scales_low_to_large: true          # only for those who dont have scores, scale as filter proxy
+
     matcher:
         name: matchers.lightglue
         filter_threshold: 0.1
