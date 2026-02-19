@@ -269,9 +269,14 @@ class _PairDataset(torch.utils.data.Dataset):
             depth_path = (
                 self.root / self.conf.depth_subpath / scene / (path.stem + ".h5")
             )
-            with h5py.File(str(depth_path), "r") as f:
-                depth = f["/depth"].__array__().astype(np.float32, copy=False)
-                depth = torch.Tensor(depth)[None]
+            try:
+                with h5py.File(str(depth_path), "r") as f:
+                    depth = f["/depth"].__array__().astype(np.float32, copy=False)
+                    depth = torch.Tensor(depth)[None]
+            except Exception as e:
+                raise OSError(
+                    f"Failed reading depth file: {depth_path}"
+                ) from e
             assert depth.shape[-2:] == img.shape[-2:]
         else:
             depth = None
