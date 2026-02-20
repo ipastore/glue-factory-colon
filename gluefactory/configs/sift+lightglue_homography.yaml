@@ -27,7 +27,7 @@ model:
         filter_kpts_with_wrapper: false
         filter_with_scale_weighting: false
         extractor_channel: grayscale
-        sort_scales_low_to_large: false
+        filter_with_lowest_scale: false
     ground_truth:
         name: matchers.homography_matcher
         th_positive: 3

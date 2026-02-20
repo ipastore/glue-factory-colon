@@ -1,34 +1,27 @@
-checkpoint: outputs/training/long26_gt_pos_null_10_lg1e-03_lr5e-05_5bin/checkpoint_best.tar
-
 model:
     name: two_view_pipeline
     extractor:
         name: extractors.sift
         backend: py_cudasift
-        max_num_keypoints: 12000
+        max_num_keypoints: 4096
         force_num_keypoints: False
         nms_radius: 0
         trainable: False
-        detection_threshold: 0.4  # 1.7 0.4   
+        detection_threshold: 1.7  # 1.7 0.4   
         rootsift: false
         first_octave: -1
         num_octaves: 6          # 6  3
-        init_blur: 2.0          # 1 2.0
+        init_blur: 1.0          # 1 2.0
         filter_kpts_with_wrapper: False
         filter_with_scale_weighting: True
-        extractor_channel: green
-        sort_scales_low_to_large: False
-
-
+        extractor_channel: grayscale
+        filter_with_lowest_scale: false
     matcher:
-      name: matchers.lightglue
+      name: matchers.lightglue_pretrained
       features: sift
       depth_confidence: -1
       width_confidence: -1
-      filter_threshold: 0.001
-      input_dim: 128      # if features == sift, overwwritten to 128 
-      add_scale_ori: true   # if features == sift, overwwritten to true
-
+      filter_threshold: 0.1
 benchmarks:
     megadepth1500:
       data:

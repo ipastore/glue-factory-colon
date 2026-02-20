@@ -38,7 +38,7 @@ model:
         filter_kpts_with_wrapper: true          # only for py_cudasift
         filter_with_scale_weighting: true      # for all that has scores
         extractor_channel: grayscale
-        sort_scales_low_to_large: true          # only for those who dont have scores, scale as filter proxy
+        filter_with_lowest_scale: true          # only for those who dont have scores, scale as filter proxy
 
     matcher:
         name: matchers.lightglue

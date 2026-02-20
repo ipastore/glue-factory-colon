@@ -96,7 +96,7 @@ class SIFT(BaseModel):
         "filter_kpts_with_wrapper": True,  # only used by py_cudasift
         "filter_with_scale_weighting": False,  # if true: rank by abs(score) * scale
         "extractor_channel": "grayscale",  # in {grayscale, red, green, blue}
-        "sort_scales_low_to_large": False,  # False: large->small, True: small->large
+        "filter_with_lowest_scale": False,  # keep smallest scales when no scores
         "force_num_keypoints": False,
     }
 
@@ -270,15 +270,14 @@ class SIFT(BaseModel):
                     ranking_scores = ranking_scores * pred["scales"]
                 indices = torch.topk(ranking_scores, num_points).indices
             else:
-                # Use scales as a proxy for keypoint quality when scores are unavailable
-                indices = torch.topk(pred["scales"], num_points).indices
+                # Use scales as a proxy for keypoint quality when scores are unavailable.
+                # largest=False keeps the smallest scales (min-k), largest=True keeps max-k.
+                indices = torch.topk(
+                    pred["scales"],
+                    num_points,
+                    largest=not self.conf.filter_with_lowest_scale,
+                ).indices
             pred = {k: v[indices] for k, v in pred.items()}
-
-        if len(pred["scales"]) > 0:
-            sort_indices = torch.argsort(
-                pred["scales"], descending=not self.conf.sort_scales_low_to_large
-            )
-            pred = {k: v[sort_indices] for k, v in pred.items()}
 
         # # Prints to debug to find optimal parameters for endomapper
         # num_keypoints = len(pred["keypoints"])
