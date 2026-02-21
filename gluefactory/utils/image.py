@@ -74,6 +74,34 @@ class ImagePreprocessor:
     def load_image(self, image_path: Path) -> dict:
         return self(load_image(image_path))
 
+    def crop_endomapper_dense(
+        self, img: torch.Tensor
+    ) -> tuple[torch.Tensor, tuple[float, float]]:
+        """Apply Endomapper dense fixed crop and return crop offset (left, top)."""
+        target_h, target_w = 512, 672
+        if tuple(img.shape[-2:]) == (target_h, target_w):
+            return img, (0.0, 0.0)
+
+        crop_top, crop_left = 0, 35
+        crop_h, crop_w = 540, 675
+        h, w = img.shape[-2:]
+        if h < crop_h or w < (crop_left + crop_w):
+            raise ValueError(
+                f"Image too small for Endomapper dense crop: {(h, w)}."
+            )
+
+        img = img[..., crop_top : crop_top + crop_h, crop_left : crop_left + crop_w]
+        center_top = (crop_h - target_h) // 2
+        center_left = (crop_w - target_w) // 2
+        img = img[
+            ...,
+            center_top : center_top + target_h,
+            center_left : center_left + target_w,
+        ]
+        left = float(crop_left + center_left)
+        top = float(crop_top + center_top)
+        return img, (left, top)
+
     def get_new_image_size(
         self,
         h: int,
