@@ -58,6 +58,265 @@ def _log_error_distribution(
 
 
 @torch.no_grad()
+def gt_matches_from_pose_sparse_dense_map(
+    kp0,
+    kp1,
+    data,
+    pos_th=3,
+    neg_th=5,
+    epi_th=None,
+    cc_th=None,
+    use_gt_pos=False,
+    **kw,
+):
+    if kp0.shape[1] == 0 or kp1.shape[1] == 0:
+        b_size, n_kp0 = kp0.shape[:2]
+        n_kp1 = kp1.shape[1]
+        assignment = torch.zeros(
+            b_size, n_kp0, n_kp1, dtype=torch.bool, device=kp0.device
+        )
+        m0 = -torch.ones_like(kp0[:, :, 0]).long()
+        m1 = -torch.ones_like(kp1[:, :, 0]).long()
+        depth0 = data["view0"].get("depth")
+        depth1 = data["view1"].get("depth")
+        if "depth_keypoints0" in kw and "depth_keypoints1" in kw:
+            d0 = kw["depth_keypoints0"]
+            d1 = kw["depth_keypoints1"]
+        else:
+            assert depth0 is not None
+            assert depth1 is not None
+            d0, _ = sample_depth(kp0, depth0)
+            d1, _ = sample_depth(kp1, depth1)
+
+        proj_0to1 = torch.empty_like(kp0)
+        proj_1to0 = torch.empty_like(kp1)
+        visible0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
+        visible1 = torch.zeros(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
+        reward = torch.zeros_like(assignment, dtype=torch.float32)
+        return {
+            "assignment": assignment,
+            "reward": reward,
+            "matches0": m0,
+            "matches1": m1,
+            "matching_scores0": (m0 > -1).float(),
+            "matching_scores1": (m1 > -1).float(),
+            "depth_keypoints0": d0,
+            "depth_keypoints1": d1,
+            "proj_0to1": proj_0to1,
+            "proj_1to0": proj_1to0,
+            "visible0": visible0,
+            "visible1": visible1,
+        }
+    camera0, camera1 = data["view0"]["camera"], data["view1"]["camera"]
+    T_0to1, T_1to0 = data["T_0to1"], data.get("T_1to0", data["T_0to1"].inv())
+
+    depth0 = data["view0"].get("depth")
+    depth1 = data["view1"].get("depth")
+    if "depth_keypoints0" in kw and "depth_keypoints1" in kw:
+        d0, valid0 = kw["depth_keypoints0"], kw["valid_depth_keypoints0"]
+        d1, valid1 = kw["depth_keypoints1"], kw["valid_depth_keypoints1"]
+    else:
+        assert depth0 is not None
+        assert depth1 is not None
+        d0, valid0 = sample_depth(kp0, depth0)
+        d1, valid1 = sample_depth(kp1, depth1)
+
+    ids0, ids1 = kw["point3D_ids0"].long(), kw["point3D_ids1"].long()
+
+    # Align dense depth scale to sparse/COLMAP depth scale per view with
+    # robust median ratio. If not enough valid samples, ignore reprojection
+    # supervision for that view in this batch item.
+    min_scale_samples = 8
+    b_size = kp0.shape[0]
+    scale0 = torch.ones(b_size, device=kp0.device, dtype=d0.dtype)
+    scale1 = torch.ones(b_size, device=kp1.device, dtype=d1.dtype)
+    has_scale0 = torch.zeros(b_size, device=kp0.device, dtype=torch.bool)
+    has_scale1 = torch.zeros(b_size, device=kp1.device, dtype=torch.bool)
+
+    z0 = kw["point3D_coords0"][..., 2].to(device=kp0.device, dtype=d0.dtype)
+    z1 = kw["point3D_coords1"][..., 2].to(device=kp1.device, dtype=d1.dtype)
+
+    ratio_ok0 = (
+        valid0
+        & torch.isfinite(d0)
+        & (d0 > 0)
+        & torch.isfinite(z0)
+        & (z0 > 1e-6)
+        & (ids0 >= 0)
+    )
+    ratio_ok1 = (
+        valid1
+        & torch.isfinite(d1)
+        & (d1 > 0)
+        & torch.isfinite(z1)
+        & (z1 > 1e-6)
+        & (ids1 >= 0)
+    )
+    inf0 = torch.full_like(d0, float("inf"))
+    inf1 = torch.full_like(d1, float("inf"))
+
+    denom0 = torch.where(ratio_ok0, d0, torch.ones_like(d0))
+    denom1 = torch.where(ratio_ok1, d1, torch.ones_like(d1))
+    vals0_all = torch.where(ratio_ok0, z0 / denom0, inf0)
+    vals1_all = torch.where(ratio_ok1, z1 / denom1, inf1)
+
+    vals0_sorted, _ = torch.sort(vals0_all, dim=1)
+    vals1_sorted, _ = torch.sort(vals1_all, dim=1)
+    count0 = ratio_ok0.sum(dim=1)
+    count1 = ratio_ok1.sum(dim=1)
+    idx0 = torch.clamp((count0 - 1) // 2, min=0).long()
+    idx1 = torch.clamp((count1 - 1) // 2, min=0).long()
+    med0 = vals0_sorted.gather(1, idx0[:, None]).squeeze(1)
+    med1 = vals1_sorted.gather(1, idx1[:, None]).squeeze(1)
+
+    valid_med0 = (count0 >= min_scale_samples) & torch.isfinite(med0) & (med0 > 0)
+    valid_med1 = (count1 >= min_scale_samples) & torch.isfinite(med1) & (med1 > 0)
+    scale0 = torch.where(valid_med0, med0, scale0)
+    scale1 = torch.where(valid_med1, med1, scale1)
+    has_scale0 = valid_med0
+    has_scale1 = valid_med1
+
+    d0 = d0 * scale0[:, None]
+    d1 = d1 * scale1[:, None]
+    valid0 = valid0 & has_scale0[:, None]
+    valid1 = valid1 & has_scale1[:, None]
+
+    unmatched = kp0.new_tensor(UNMATCHED_FEATURE)
+    ignore = kp0.new_tensor(IGNORE_FEATURE)
+    m0 = torch.full(kp0.shape[:2], ignore, device=kp0.device, dtype=torch.long)
+    m1 = torch.full(kp1.shape[:2], ignore, device=kp1.device, dtype=torch.long)
+    positive = torch.zeros(
+        kp0.shape[0], kp0.shape[1], kp1.shape[1], device=kp0.device, dtype=torch.bool
+    )
+    mask_pos_map0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
+    mask_pos_map1 = torch.zeros(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
+    mask_pos_reproj0 = torch.zeros_like(mask_pos_map0)
+    mask_pos_reproj1 = torch.zeros_like(mask_pos_map1)
+    mask_neg_reproj0 = torch.zeros_like(mask_pos_map0)
+    mask_neg_reproj1 = torch.zeros_like(mask_pos_map1)
+    mask_neg_epi0 = torch.zeros_like(mask_pos_map0)
+    mask_neg_epi1 = torch.zeros_like(mask_pos_map1)
+
+    # Init above
+    # ids0, ids1 = kw["point3D_ids0"].long(), kw["point3D_ids1"].long()
+
+    # Commented out, it could be use it if we pad features with invalid 3D_mask to leave them out for matching
+    # valid_3D_0, valid_3D_1 = kw["valid_3D_mask0"],  kw["valid_3D_mask1"]
+
+    ## TO ERASE, old. Mantain after confirmation of working
+    # depth0 = None
+    # depth1 = None
+    # d0, d1 = kw["sparse_depth0"], kw["sparse_depth1"]
+    # valid_d0, valid_d1 = kw["valid_depth_mask0"], kw["valid_depth_mask1"]
+    ##
+
+    if use_gt_pos:
+        positive_gt = (
+            (ids0.unsqueeze(-1) == ids1.unsqueeze(-2))
+            # & valid_3D_0.unsqueeze(-1)
+            # & valid_3D_1.unsqueeze(-2)
+        )
+        mask_pos_map0 = positive_gt.any(-1)
+        mask_pos_map1 = positive_gt.any(-2)
+        idx0 = positive_gt.float().argmax(-1)
+        idx1 = positive_gt.float().argmax(-2)
+        m0 = torch.where(positive_gt.any(-1), idx0, m0)
+        m1 = torch.where(positive_gt.any(-2), idx1, m1)
+        positive = positive | positive_gt
+
+    kp0_1, visible0 = project(
+        kp0, d0, depth1, camera0, camera1, T_0to1, valid0, ccth=cc_th
+    )
+    kp1_0, visible1 = project(
+        kp1, d1, depth0, camera1, camera0, T_1to0, valid1, ccth=cc_th
+    )
+    mask_visible = visible0.unsqueeze(-1) & visible1.unsqueeze(-2)
+
+    # build a distance matrix of size [... x M x N]
+    dist0 = torch.sum((kp0_1.unsqueeze(-2) - kp1.unsqueeze(-3)) ** 2, -1)
+    dist1 = torch.sum((kp0.unsqueeze(-2) - kp1_0.unsqueeze(-3)) ** 2, -1)
+    dist = torch.max(dist0, dist1)
+    inf = dist.new_tensor(float("inf"))
+    dist = torch.where(mask_visible, dist, inf)
+
+    min0 = dist.min(-1).indices
+    min1 = dist.min(-2).indices
+
+    if pos_th is not None:
+        ismin0 = torch.zeros(dist.shape, dtype=torch.bool, device=dist.device)
+        ismin1 = ismin0.clone()
+        ismin0.scatter_(-1, min0.unsqueeze(-1), value=1)
+        ismin1.scatter_(-2, min1.unsqueeze(-2), value=1)
+        positive_dist = ismin0 & ismin1 & (dist < pos_th**2)
+        positive = positive | positive_dist
+        mask_pos_reproj0 = positive_dist.any(-1)
+        mask_pos_reproj1 = positive_dist.any(-2)
+        m0 = torch.where((m0 == ignore) & positive_dist.any(-1), min0, m0)
+        m1 = torch.where((m1 == ignore) & positive_dist.any(-2), min1, m1)
+
+    if neg_th is not None:
+        negative0 = (dist0.min(-1).values > neg_th**2) & valid0
+        negative1 = (dist1.min(-2).values > neg_th**2) & valid1
+        mask_neg_reproj0 = negative0
+        mask_neg_reproj1 = negative1
+        m0 = torch.where((m0 == ignore) & negative0, unmatched, m0)
+        m1 = torch.where((m1 == ignore) & negative1, unmatched, m1)
+
+    F = (
+        camera1.calibration_matrix().inverse().transpose(-1, -2)
+        @ T_to_E(T_0to1)
+        @ camera0.calibration_matrix().inverse()
+    )
+    epi_dist = sym_epipolar_distance_all(kp0, kp1, F)
+
+    epi_th_val = epi_th if epi_th is not None else neg_th
+
+    if epi_th is not None:
+        mask_ignore = (m0.unsqueeze(-1) == ignore) & (m1.unsqueeze(-2) == ignore)
+        epi_dist = torch.where(mask_ignore, epi_dist, inf)
+        exclude0 = epi_dist.min(-1).values > epi_th
+        exclude1 = epi_dist.min(-2).values > epi_th
+        mask_neg_epi0 = exclude0
+        mask_neg_epi1 = exclude1
+        m0 = torch.where(exclude0 & (~valid0) & (m0 == ignore), unmatched, m0)
+        m1 = torch.where(exclude1 & (~valid1) & (m1 == ignore), unmatched, m1)
+
+    reward_pos = (
+        (dist < pos_th**2).float() if pos_th is not None else torch.zeros_like(dist)
+    )
+    reward_pos = torch.maximum(reward_pos, positive.float())
+
+    # Handle epipolar distance penalty only if epi_th is provided
+    if epi_th_val is not None:
+        epi_penalty = (epi_dist > epi_th_val).float()
+    else:
+        epi_penalty = torch.zeros_like(reward_pos)
+
+    return {
+        "assignment": positive,
+        "reward": reward_pos - epi_penalty,
+        "matches0": m0,
+        "matches1": m1,
+        "matching_scores0": (m0 > -1).float(),
+        "matching_scores1": (m1 > -1).float(),
+        "depth_keypoints0": d0,
+        "depth_keypoints1": d1,
+        "proj_0to1": kp0_1,
+        "proj_1to0": kp1_0,
+        "visible0": visible0,
+        "visible1": visible1,
+        "mask_pos_3d_map0": mask_pos_map0,
+        "mask_pos_3d_map1": mask_pos_map1,
+        "mask_pos_reproj0": mask_pos_reproj0,
+        "mask_pos_reproj1": mask_pos_reproj1,
+        "mask_neg_reproj0": mask_neg_reproj0,
+        "mask_neg_reproj1": mask_neg_reproj1,
+        "mask_neg_epi0": mask_neg_epi0,
+        "mask_neg_epi1": mask_neg_epi1,
+    }
+
+
+@torch.no_grad()
 def gt_matches_from_pose_sparse_map(
     kp0,
     kp1,

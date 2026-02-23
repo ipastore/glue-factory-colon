@@ -6,7 +6,7 @@ data:
     val_split: val_seqs.txt
     val_num_per_scene: 10 
     val_pairs: null
-    overfit_split: overfit.txt
+    overfit_split: overfit_seqs.txt
     overfit_pairs: null
     overfit_num_per_scene: 10
     min_overlap: 0.0
@@ -14,14 +14,14 @@ data:
     num_overlap_bins: 5
     read_depth: true
     read_image: true
-    batch_size: 2 #32
-    num_workers: 0 #0 #14
+    batch_size: 32 #32
+    num_workers: 8 #0 #14
     load_features:
-        do: false  # enable this if you have cached predictions
-        path: exports/megadepth-undist-depth-r1024_pycolmap_SIFTGPU-nms3-fixed-k2048/{scene}.h5
-        padding_length: 2048
-        padding_fn: pad_local_features
-        data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales"]
+    do: false  # enable this if you have cached predictions
+    path: exports/megadepth-undist-depth-r1024_pycolmap_SIFTGPU-nms3-fixed-k2048/{scene}.h5
+    padding_length: 2048
+    padding_fn: pad_local_features
+    data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales"]
         
 
 model:
