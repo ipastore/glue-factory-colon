@@ -81,6 +81,14 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         default=0,
         help="Random seed used to sample CUDA-SIFT keypoints for reprojection debugging.",
     )
+    parser.add_argument(
+        "--compare-per-image-scale",
+        action="store_true",
+        help=(
+            "Also evaluate per-image depth scale (all valid COLMAP IDs in each view), "
+            "in addition to the default pair-common-ID scale."
+        ),
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -398,11 +406,64 @@ def _lookup_xyz(scene_info: Dict, point_ids: np.ndarray) -> tuple[np.ndarray, np
     xyz_sorted = xyz_all[order]
     q = point_ids.astype(np.int64)
     pos = np.searchsorted(ids_sorted, q)
-    ok = (pos >= 0) & (pos < ids_sorted.shape[0]) & (ids_sorted[pos] == q)
+    in_range = (pos >= 0) & (pos < ids_sorted.shape[0])
+    pos_safe = np.clip(pos, 0, max(ids_sorted.shape[0] - 1, 0))
+    ok = in_range & (ids_sorted[pos_safe] == q)
     xyz = np.zeros((q.shape[0], 3), dtype=np.float32)
     if np.any(ok):
-        xyz[ok] = xyz_sorted[pos[ok]]
+        xyz[ok] = xyz_sorted[pos_safe[ok]]
     return xyz, ok
+
+
+def _compute_scale_for_ids(
+    scene_info: Dict,
+    image_obs_by_id: Dict[int, np.ndarray],
+    point_ids: np.ndarray,
+    T_w2c: Pose,
+    depth_t: torch.Tensor,
+    crop_offset: tuple[float, float],
+    scales_xy: torch.Tensor,
+    min_samples: int = 8,
+) -> tuple[float, float, np.ndarray, np.ndarray]:
+    ids = np.asarray(point_ids, dtype=np.int64)
+    ids = ids[ids >= 0]
+    if ids.size == 0:
+        return 1.0, float("nan"), np.zeros((0,), dtype=np.float32), np.zeros(
+            (0,), dtype=np.float32
+        )
+    ids = np.asarray([pid for pid in ids if int(pid) in image_obs_by_id], dtype=np.int64)
+    if ids.size == 0:
+        return 1.0, float("nan"), np.zeros((0,), dtype=np.float32), np.zeros(
+            (0,), dtype=np.float32
+        )
+
+    xyz_world, xyz_ok = _lookup_xyz(scene_info, ids)
+    if not np.any(xyz_ok):
+        return 1.0, float("nan"), np.zeros((0,), dtype=np.float32), np.zeros(
+            (0,), dtype=np.float32
+        )
+    ids = ids[xyz_ok]
+    xyz_world = xyz_world[xyz_ok]
+    pts = np.stack([image_obs_by_id[int(pid)] for pid in ids], axis=0).astype(
+        np.float32, copy=False
+    )
+    pts[:, 0] -= float(crop_offset[0])
+    pts[:, 1] -= float(crop_offset[1])
+    pts[:, 0] *= float(scales_xy[0])
+    pts[:, 1] *= float(scales_xy[1])
+    kp_t = torch.from_numpy(pts)[None].float()
+    d, valid = sample_depth(kp_t, depth_t[None])
+
+    z = (T_w2c * torch.from_numpy(xyz_world).float())[:, 2].detach().cpu().numpy()
+    d_np = d[0].detach().cpu().numpy()
+    v_np = valid[0].detach().cpu().numpy().astype(bool)
+    good = v_np & np.isfinite(d_np) & (d_np > 0) & np.isfinite(z) & (z > 1e-6)
+    if int(np.sum(good)) < min_samples:
+        return 1.0, float("nan"), np.zeros((0,), dtype=np.float32), np.zeros(
+            (0,), dtype=np.float32
+        )
+    ratios = (z[good] / d_np[good]).astype(np.float32, copy=False)
+    return float(np.median(ratios)), float(np.median(ratios)), z[good], ratios
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
@@ -460,8 +521,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             f"idx_a={idx_a}, idx_b={idx_b}."
         )
 
-    view_a = pair_loader._read_view(scene, idx_a)
-    view_b = pair_loader._read_view(scene, idx_b)
+    view_a = pair_loader._read_view(scene, name_a)
+    view_b = pair_loader._read_view(scene, name_b)
     img_a = view_a["image"]
     img_b = view_b["image"]
     depth_a_t = view_a["depth"][None]
@@ -508,80 +569,136 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     valid_b_count = int(valid_b.sum().detach().cpu().item())
     shared_count = int(pts_a.shape[0])
 
-    scale_a = 1.0
-    scale_b = 1.0
-    scale_a_med = float("nan")
-    scale_b_med = float("nan")
-    scale_mode = "colmap_median"
-    z_stats_a = _summary_stats(np.asarray([], dtype=np.float32))
-    z_stats_b = _summary_stats(np.asarray([], dtype=np.float32))
-    ratio_stats_a = _summary_stats(np.asarray([], dtype=np.float32))
-    ratio_stats_b = _summary_stats(np.asarray([], dtype=np.float32))
-    ratios_a = np.zeros((0,), dtype=np.float32)
-    ratios_b = np.zeros((0,), dtype=np.float32)
-    if shared_count > 0:
-        xyz_world, xyz_ok = _lookup_xyz(scene_info, ids_crop)
-        if np.any(xyz_ok):
-            Xw = torch.from_numpy(xyz_world[xyz_ok]).float()
-            Za = (T_w2a * Xw)[:, 2].detach().cpu().numpy()
-            Zb = (T_w2b * Xw)[:, 2].detach().cpu().numpy()
-            da_np = d_a[0].detach().cpu().numpy()[xyz_ok]
-            db_np = d_b[0].detach().cpu().numpy()[xyz_ok]
-            va_np = valid_a[0].detach().cpu().numpy()[xyz_ok]
-            vb_np = valid_b[0].detach().cpu().numpy()[xyz_ok]
-
-            good_a = va_np & np.isfinite(da_np) & (da_np > 0) & np.isfinite(Za) & (Za > 1e-6)
-            good_b = vb_np & np.isfinite(db_np) & (db_np > 0) & np.isfinite(Zb) & (Zb > 1e-6)
-            if np.any(good_a):
-                ratios_a = Za[good_a] / da_np[good_a]
-                z_stats_a = _summary_stats(Za[good_a])
-                ratio_stats_a = _summary_stats(ratios_a)
-                scale_a_med = float(np.median(ratios_a))
-                scale_a = scale_a_med
-            if np.any(good_b):
-                ratios_b = Zb[good_b] / db_np[good_b]
-                z_stats_b = _summary_stats(Zb[good_b])
-                ratio_stats_b = _summary_stats(ratios_b)
-                scale_b_med = float(np.median(ratios_b))
-                scale_b = scale_b_med
-
-    d_a_used = d_a * float(scale_a)
-    d_b_used = d_b * float(scale_b)
     d_a_np = d_a[0].detach().cpu().numpy()
     d_b_np = d_b[0].detach().cpu().numpy()
-    d_a_used_np = d_a_used[0].detach().cpu().numpy()
-    d_b_used_np = d_b_used[0].detach().cpu().numpy()
     va_all = valid_a[0].detach().cpu().numpy().astype(bool)
     vb_all = valid_b[0].detach().cpu().numpy().astype(bool)
     good_depth_a = va_all & np.isfinite(d_a_np) & (d_a_np > 0)
     good_depth_b = vb_all & np.isfinite(d_b_np) & (d_b_np > 0)
     depth_stats_a_raw = _summary_stats(d_a_np[good_depth_a])
     depth_stats_b_raw = _summary_stats(d_b_np[good_depth_b])
-    depth_stats_a_aligned = _summary_stats(d_a_used_np[good_depth_a])
-    depth_stats_b_aligned = _summary_stats(d_b_used_np[good_depth_b])
 
-    uv_b_proj_t, vis_b_t = project(
-        pts_a_t, d_a_used, depth_b_t, cam_a, cam_b, T_a2b, valid_a, ccth=None
+    pair_scale_a = 1.0
+    pair_scale_b = 1.0
+    pair_z_a = np.zeros((0,), dtype=np.float32)
+    pair_z_b = np.zeros((0,), dtype=np.float32)
+    pair_ratios_a = np.zeros((0,), dtype=np.float32)
+    pair_ratios_b = np.zeros((0,), dtype=np.float32)
+    if shared_count > 0:
+        xyz_world, xyz_ok = _lookup_xyz(scene_info, ids_crop)
+        if np.any(xyz_ok):
+            Xw = torch.from_numpy(xyz_world[xyz_ok]).float()
+            Za = (T_w2a * Xw)[:, 2].detach().cpu().numpy()
+            Zb = (T_w2b * Xw)[:, 2].detach().cpu().numpy()
+            da_np_shared = d_a[0].detach().cpu().numpy()[xyz_ok]
+            db_np_shared = d_b[0].detach().cpu().numpy()[xyz_ok]
+            va_np = valid_a[0].detach().cpu().numpy()[xyz_ok]
+            vb_np = valid_b[0].detach().cpu().numpy()[xyz_ok]
+            good_a = (
+                va_np
+                & np.isfinite(da_np_shared)
+                & (da_np_shared > 0)
+                & np.isfinite(Za)
+                & (Za > 1e-6)
+            )
+            good_b = (
+                vb_np
+                & np.isfinite(db_np_shared)
+                & (db_np_shared > 0)
+                & np.isfinite(Zb)
+                & (Zb > 1e-6)
+            )
+            if np.any(good_a):
+                pair_z_a = Za[good_a]
+                pair_ratios_a = pair_z_a / da_np_shared[good_a]
+                pair_scale_a = float(np.median(pair_ratios_a))
+            if np.any(good_b):
+                pair_z_b = Zb[good_b]
+                pair_ratios_b = pair_z_b / db_np_shared[good_b]
+                pair_scale_b = float(np.median(pair_ratios_b))
+
+    obs_a_ids = np.asarray(scene_info["point3D_ids_per_image"][idx_a], dtype=np.int64)
+    obs_b_ids = np.asarray(scene_info["point3D_ids_per_image"][idx_b], dtype=np.int64)
+    per_scale_a, _, per_z_a, per_ratios_a = _compute_scale_for_ids(
+        scene_info=scene_info,
+        image_obs_by_id=obs_a,
+        point_ids=obs_a_ids,
+        T_w2c=T_w2a,
+        depth_t=view_a["depth"],
+        crop_offset=off_a,
+        scales_xy=view_a["scales"],
     )
-    uv_a_proj_t, vis_a_t = project(
-        pts_b_t, d_b_used, depth_a_t, cam_b, cam_a, T_b2a, valid_b, ccth=None
+    per_scale_b, _, per_z_b, per_ratios_b = _compute_scale_for_ids(
+        scene_info=scene_info,
+        image_obs_by_id=obs_b,
+        point_ids=obs_b_ids,
+        T_w2c=T_w2b,
+        depth_t=view_b["depth"],
+        crop_offset=off_b,
+        scales_xy=view_b["scales"],
     )
 
-    uv_a_proj = uv_a_proj_t[0].detach().cpu().numpy()
-    uv_b_proj = uv_b_proj_t[0].detach().cpu().numpy()
-    vis_a = vis_a_t[0].detach().cpu().numpy().astype(bool)
-    vis_b = vis_b_t[0].detach().cpu().numpy().astype(bool)
+    strategies = [
+        ("pair_common_ids", pair_scale_a, pair_scale_b, pair_z_a, pair_z_b, pair_ratios_a, pair_ratios_b),
+    ]
+    if args.compare_per_image_scale:
+        strategies.append(
+            ("per_image_ids", per_scale_a, per_scale_b, per_z_a, per_z_b, per_ratios_a, per_ratios_b)
+        )
 
-    err_ab = np.linalg.norm(uv_b_proj - pts_b, axis=1)
-    err_ba = np.linalg.norm(uv_a_proj - pts_a, axis=1)
-    err_ab_v = err_ab[vis_b]
-    err_ba_v = err_ba[vis_a]
-
+    strategy_results = {}
     thresholds = np.array([1, 2, 3, 4, 5], dtype=np.float32)
-    stats_ab = _stats(err_ab_v)
-    stats_ba = _stats(err_ba_v)
-    inliers_ab = _inlier_rates(err_ab_v, thresholds)
-    inliers_ba = _inlier_rates(err_ba_v, thresholds)
+    for (
+        strategy_name,
+        scale_a,
+        scale_b,
+        z_vals_a,
+        z_vals_b,
+        ratios_a,
+        ratios_b,
+    ) in strategies:
+        d_a_used = d_a * float(scale_a)
+        d_b_used = d_b * float(scale_b)
+        d_a_used_np = d_a_used[0].detach().cpu().numpy()
+        d_b_used_np = d_b_used[0].detach().cpu().numpy()
+        depth_stats_a_aligned = _summary_stats(d_a_used_np[good_depth_a])
+        depth_stats_b_aligned = _summary_stats(d_b_used_np[good_depth_b])
+
+        uv_b_proj_t, vis_b_t = project(
+            pts_a_t, d_a_used, depth_b_t, cam_a, cam_b, T_a2b, valid_a, ccth=None
+        )
+        uv_a_proj_t, vis_a_t = project(
+            pts_b_t, d_b_used, depth_a_t, cam_b, cam_a, T_b2a, valid_b, ccth=None
+        )
+        uv_a_proj = uv_a_proj_t[0].detach().cpu().numpy()
+        uv_b_proj = uv_b_proj_t[0].detach().cpu().numpy()
+        vis_a = vis_a_t[0].detach().cpu().numpy().astype(bool)
+        vis_b = vis_b_t[0].detach().cpu().numpy().astype(bool)
+
+        err_ab = np.linalg.norm(uv_b_proj - pts_b, axis=1)
+        err_ba = np.linalg.norm(uv_a_proj - pts_a, axis=1)
+        err_ab_v = err_ab[vis_b]
+        err_ba_v = err_ba[vis_a]
+        strategy_results[strategy_name] = {
+            "scale_a": float(scale_a),
+            "scale_b": float(scale_b),
+            "z_stats_a": _summary_stats(z_vals_a),
+            "z_stats_b": _summary_stats(z_vals_b),
+            "ratio_stats_a": _summary_stats(ratios_a),
+            "ratio_stats_b": _summary_stats(ratios_b),
+            "depth_stats_a_aligned": depth_stats_a_aligned,
+            "depth_stats_b_aligned": depth_stats_b_aligned,
+            "uv_a_proj": uv_a_proj,
+            "uv_b_proj": uv_b_proj,
+            "vis_a": vis_a,
+            "vis_b": vis_b,
+            "err_ab": err_ab,
+            "err_ba": err_ba,
+            "stats_ab": _stats(err_ab_v),
+            "stats_ba": _stats(err_ba_v),
+            "inliers_ab": _inlier_rates(err_ab_v, thresholds),
+            "inliers_ba": _inlier_rates(err_ba_v, thresholds),
+        }
 
     gray_a = _to_gray_luminance(img_a)
     gray_b = _to_gray_luminance(img_b)
@@ -644,9 +761,6 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     out_dir = args.out_dir / args.scene / f"{Path(name_a).stem}_{Path(name_b).stem}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    rainbow = _draw_rainbow_matches(img_a_bgr, img_b_bgr, pts_a, pts_b, args.max_draw)
-    cv2.imwrite(str(out_dir / "gt_rainbow_matches.png"), rainbow)
-
     cv2.imwrite(str(out_dir / "cropped_viewA.png"), img_a_bgr)
     cv2.imwrite(str(out_dir / "cropped_viewB.png"), img_b_bgr)
 
@@ -668,11 +782,30 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         img_b_bgr, img_a_bgr, sift_b_vis, sift_a_proj_vis, args.max_draw
     )
     cv2.imwrite(str(out_dir / "sift_reprojection_B_to_A.png"), sift_reproj_pair_ba)
-
-    res_ab = _draw_residual_overlay(img_b_bgr, pts_b[vis_b], uv_b_proj[vis_b], err_ab[vis_b], args.max_draw)
-    cv2.imwrite(str(out_dir / "residual_A_to_B.png"), res_ab)
-    res_ba = _draw_residual_overlay(img_a_bgr, pts_a[vis_a], uv_a_proj[vis_a], err_ba[vis_a], args.max_draw)
-    cv2.imwrite(str(out_dir / "residual_B_to_A.png"), res_ba)
+    for strategy_name, r in strategy_results.items():
+        rainbow = _draw_rainbow_matches(
+            img_a_bgr, img_b_bgr, pts_a, pts_b, args.max_draw
+        )
+        cv2.imwrite(
+            str(out_dir / f"gt_rainbow_matches_{strategy_name}.png"),
+            rainbow,
+        )
+        res_ab = _draw_residual_overlay(
+            img_b_bgr,
+            pts_b[r["vis_b"]],
+            r["uv_b_proj"][r["vis_b"]],
+            r["err_ab"][r["vis_b"]],
+            args.max_draw,
+        )
+        cv2.imwrite(str(out_dir / f"residual_A_to_B_{strategy_name}.png"), res_ab)
+        res_ba = _draw_residual_overlay(
+            img_a_bgr,
+            pts_a[r["vis_a"]],
+            r["uv_a_proj"][r["vis_a"]],
+            r["err_ba"][r["vis_a"]],
+            args.max_draw,
+        )
+        cv2.imwrite(str(out_dir / f"residual_B_to_A_{strategy_name}.png"), res_ba)
 
     cov_img_a = _draw_coverage_overlay(img_a_bgr, pts_a, kpts_a, args.coverage_radius)
     cov_img_b = _draw_coverage_overlay(img_b_bgr, pts_b, kpts_b, args.coverage_radius)
@@ -685,8 +818,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         f.write(f"scene={args.scene}\n")
         f.write(f"image_a={name_a}\n")
         f.write(f"image_b={name_b}\n")
-        f.write(f"depth_scale_mode={scale_mode}\n")
-        f.write("depth_scale_policy=always_colmap_median_ratio\n")
+        f.write(
+            f"depth_scale_modes={[name for name, *_ in strategies]}\n"
+        )
+        f.write("depth_scale_policy=colmap_median_ratio\n")
         f.write(f"shared_ids_raw={len(shared_ids_raw)}\n")
         f.write(f"shared_ids_after_crop={len(ids_crop)}\n")
         f.write(f"shared_ids_used_for_projection={len(pts_a)}\n")
@@ -694,26 +829,26 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         f.write(f"sampled_depth_valid_B={valid_b_count}\n")
         f.write(f"pose_dt={pose_dt}\n")
         f.write(f"pose_dr_deg={pose_dr}\n")
-        f.write(f"depth_scale_A={scale_a}\n")
-        f.write(f"depth_scale_B={scale_b}\n")
-        f.write(f"depth_scale_A_median_ratio={scale_a_med}\n")
-        f.write(f"depth_scale_B_median_ratio={scale_b_med}\n")
         f.write(f"depth_sample_A_raw_stats={depth_stats_a_raw}\n")
         f.write(f"depth_sample_B_raw_stats={depth_stats_b_raw}\n")
-        f.write(f"depth_sample_A_aligned_stats={depth_stats_a_aligned}\n")
-        f.write(f"depth_sample_B_aligned_stats={depth_stats_b_aligned}\n")
-        f.write(f"colmap_z_A_stats={z_stats_a}\n")
-        f.write(f"colmap_z_B_stats={z_stats_b}\n")
-        f.write(f"scale_ratio_A_stats={ratio_stats_a}\n")
-        f.write(f"scale_ratio_B_stats={ratio_stats_b}\n")
-        f.write(f"scale_alignment_final_A={scale_a}\n")
-        f.write(f"scale_alignment_final_B={scale_b}\n")
-        f.write(f"visible_A={int(np.sum(vis_a))}\n")
-        f.write(f"visible_B={int(np.sum(vis_b))}\n")
-        f.write(f"stats_A_to_B={stats_ab}\n")
-        f.write(f"stats_B_to_A={stats_ba}\n")
-        f.write(f"inlier_A_to_B={inliers_ab}\n")
-        f.write(f"inlier_B_to_A={inliers_ba}\n")
+        for strategy_name, r in strategy_results.items():
+            p = f"{strategy_name}_"
+            f.write(f"{p}depth_scale_A={r['scale_a']}\n")
+            f.write(f"{p}depth_scale_B={r['scale_b']}\n")
+            f.write(f"{p}depth_sample_A_aligned_stats={r['depth_stats_a_aligned']}\n")
+            f.write(f"{p}depth_sample_B_aligned_stats={r['depth_stats_b_aligned']}\n")
+            f.write(f"{p}colmap_z_A_stats={r['z_stats_a']}\n")
+            f.write(f"{p}colmap_z_B_stats={r['z_stats_b']}\n")
+            f.write(f"{p}scale_ratio_A_stats={r['ratio_stats_a']}\n")
+            f.write(f"{p}scale_ratio_B_stats={r['ratio_stats_b']}\n")
+            f.write(f"{p}scale_alignment_final_A={r['scale_a']}\n")
+            f.write(f"{p}scale_alignment_final_B={r['scale_b']}\n")
+            f.write(f"{p}visible_A={int(np.sum(r['vis_a']))}\n")
+            f.write(f"{p}visible_B={int(np.sum(r['vis_b']))}\n")
+            f.write(f"{p}stats_A_to_B={r['stats_ab']}\n")
+            f.write(f"{p}stats_B_to_A={r['stats_ba']}\n")
+            f.write(f"{p}inlier_A_to_B={r['inliers_ab']}\n")
+            f.write(f"{p}inlier_B_to_A={r['inliers_ba']}\n")
         f.write(f"cudasift_kpts_A={len(kpts_a)}\n")
         f.write(f"cudasift_kpts_B={len(kpts_b)}\n")
         f.write(f"coverage_radius_px={args.coverage_radius}\n")
@@ -727,13 +862,22 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         f.write(f"random_sift_visible_in_A={int(np.sum(vis_sift_a))}\n")
 
     print(f"[ok] scene={args.scene}, pair=({name_a}, {name_b})")
-    print(f"[ok] shared={len(pts_a)} visible_B={int(np.sum(vis_b))} visible_A={int(np.sum(vis_a))}")
-    print(f"[ok] sampled_depth_valid A={valid_a_count} B={valid_b_count} pose_dt={pose_dt:.6f}m")
+    default_result = strategy_results["pair_common_ids"]
     print(
-        f"[ok] depth scales applied ({scale_mode}): "
-        f"A={float(scale_a):.4f}, B={float(scale_b):.4f}"
+        f"[ok] shared={len(pts_a)} "
+        f"visible_B={int(np.sum(default_result['vis_b']))} "
+        f"visible_A={int(np.sum(default_result['vis_a']))}"
     )
-    print(f"[ok] inlier@3px A->B={inliers_ab[3.0]:.4f} B->A={inliers_ba[3.0]:.4f}")
+    print(f"[ok] sampled_depth_valid A={valid_a_count} B={valid_b_count} pose_dt={pose_dt:.6f}m")
+    for strategy_name, r in strategy_results.items():
+        print(
+            f"[ok] depth scales applied ({strategy_name}): "
+            f"A={float(r['scale_a']):.4f}, B={float(r['scale_b']):.4f}"
+        )
+        print(
+            f"[ok] inlier@3px ({strategy_name}) "
+            f"A->B={r['inliers_ab'][3.0]:.4f} B->A={r['inliers_ba'][3.0]:.4f}"
+        )
     print(f"[ok] outputs: {out_dir}")
     return 0
 

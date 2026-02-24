@@ -272,14 +272,14 @@ def make_gt_pos_figs(pred_, data_, n_pairs=2, pos_th=None):
     n_pairs = min(n_pairs, view0["image"].shape[0])
 
     kp0, kp1 = data["keypoints0"], data["keypoints1"]
-    gt_m0 = pred["matches0"]
+    gt_m0 = pred.get("plot_matches0", pred["matches0"])
     overlap = data.get("overlap_0to1")
     val3D_mask0 = data.get("valid_3D_mask0")
     val3D_mask1 = data.get("valid_3D_mask1")
     pad_mask0 = data.get("keypoint_scores0")
     pad_mask1 = data.get("keypoint_scores1")
-    map_pos0_mask = pred["mask_pos_3d_map0"]
-    reproj_pos0_mask = pred["mask_pos_reproj0"]
+    map_pos0_mask = pred.get("plot_mask_pos_3d_map0", pred["mask_pos_3d_map0"])
+    reproj_pos0_mask = pred.get("plot_mask_pos_reproj0", pred["mask_pos_reproj0"])
 
     if pad_mask0 is not None:
         pad_mask0 = pad_mask0 > 0

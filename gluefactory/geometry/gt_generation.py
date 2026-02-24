@@ -66,7 +66,6 @@ def gt_matches_from_pose_sparse_dense_map(
     neg_th=5,
     epi_th=None,
     cc_th=None,
-    use_gt_pos=False,
     **kw,
 ):
     if kp0.shape[1] == 0 or kp1.shape[1] == 0:
@@ -121,65 +120,10 @@ def gt_matches_from_pose_sparse_dense_map(
         d0, valid0 = sample_depth(kp0, depth0)
         d1, valid1 = sample_depth(kp1, depth1)
 
-    ids0, ids1 = kw["point3D_ids0"].long(), kw["point3D_ids1"].long()
-
-    # Align dense depth scale to sparse/COLMAP depth scale per view with
-    # robust median ratio. If not enough valid samples, ignore reprojection
-    # supervision for that view in this batch item.
-    min_scale_samples = 8
-    b_size = kp0.shape[0]
-    scale0 = torch.ones(b_size, device=kp0.device, dtype=d0.dtype)
-    scale1 = torch.ones(b_size, device=kp1.device, dtype=d1.dtype)
-    has_scale0 = torch.zeros(b_size, device=kp0.device, dtype=torch.bool)
-    has_scale1 = torch.zeros(b_size, device=kp1.device, dtype=torch.bool)
-
-    z0 = kw["point3D_coords0"][..., 2].to(device=kp0.device, dtype=d0.dtype)
-    z1 = kw["point3D_coords1"][..., 2].to(device=kp1.device, dtype=d1.dtype)
-
-    ratio_ok0 = (
-        valid0
-        & torch.isfinite(d0)
-        & (d0 > 0)
-        & torch.isfinite(z0)
-        & (z0 > 1e-6)
-        & (ids0 >= 0)
-    )
-    ratio_ok1 = (
-        valid1
-        & torch.isfinite(d1)
-        & (d1 > 0)
-        & torch.isfinite(z1)
-        & (z1 > 1e-6)
-        & (ids1 >= 0)
-    )
-    inf0 = torch.full_like(d0, float("inf"))
-    inf1 = torch.full_like(d1, float("inf"))
-
-    denom0 = torch.where(ratio_ok0, d0, torch.ones_like(d0))
-    denom1 = torch.where(ratio_ok1, d1, torch.ones_like(d1))
-    vals0_all = torch.where(ratio_ok0, z0 / denom0, inf0)
-    vals1_all = torch.where(ratio_ok1, z1 / denom1, inf1)
-
-    vals0_sorted, _ = torch.sort(vals0_all, dim=1)
-    vals1_sorted, _ = torch.sort(vals1_all, dim=1)
-    count0 = ratio_ok0.sum(dim=1)
-    count1 = ratio_ok1.sum(dim=1)
-    idx0 = torch.clamp((count0 - 1) // 2, min=0).long()
-    idx1 = torch.clamp((count1 - 1) // 2, min=0).long()
-    med0 = vals0_sorted.gather(1, idx0[:, None]).squeeze(1)
-    med1 = vals1_sorted.gather(1, idx1[:, None]).squeeze(1)
-
-    valid_med0 = (count0 >= min_scale_samples) & torch.isfinite(med0) & (med0 > 0)
-    valid_med1 = (count1 >= min_scale_samples) & torch.isfinite(med1) & (med1 > 0)
-    scale0 = torch.where(valid_med0, med0, scale0)
-    scale1 = torch.where(valid_med1, med1, scale1)
-    has_scale0 = valid_med0
-    has_scale1 = valid_med1
-
+    scale0 = kw["depth_scale0"].to(device=kp0.device, dtype=d0.dtype)
+    scale1 = kw["depth_scale1"].to(device=kp1.device, dtype=d1.dtype)
     d0 = d0 * scale0[:, None]
     d1 = d1 * scale1[:, None]
-    valid0 = valid0 & has_scale0[:, None]
-    valid1 = valid1 & has_scale1[:, None]
 
     unmatched = kp0.new_tensor(UNMATCHED_FEATURE)
     ignore = kp0.new_tensor(IGNORE_FEATURE)
@@ -209,20 +153,6 @@ def gt_matches_from_pose_sparse_dense_map(
     # d0, d1 = kw["sparse_depth0"], kw["sparse_depth1"]
     # valid_d0, valid_d1 = kw["valid_depth_mask0"], kw["valid_depth_mask1"]
     ##
-
-    if use_gt_pos:
-        positive_gt = (
-            (ids0.unsqueeze(-1) == ids1.unsqueeze(-2))
-            # & valid_3D_0.unsqueeze(-1)
-            # & valid_3D_1.unsqueeze(-2)
-        )
-        mask_pos_map0 = positive_gt.any(-1)
-        mask_pos_map1 = positive_gt.any(-2)
-        idx0 = positive_gt.float().argmax(-1)
-        idx1 = positive_gt.float().argmax(-2)
-        m0 = torch.where(positive_gt.any(-1), idx0, m0)
-        m1 = torch.where(positive_gt.any(-2), idx1, m1)
-        positive = positive | positive_gt
 
     kp0_1, visible0 = project(
         kp0, d0, depth1, camera0, camera1, T_0to1, valid0, ccth=cc_th

@@ -1,7 +1,12 @@
 import argparse
 import logging
+import os
+import signal
+import zipfile
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Dict
+
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -18,7 +23,7 @@ from .base_dataset import BaseDataset
 from .utils import rotate_intrinsics, rotate_pose_inplane
 
 logger = logging.getLogger(__name__)
-scene_lists_path = Path(__file__).parent / "endomapper_dense_seq_lists"
+seq_lists_path = Path(__file__).parent / "endomapper_dense_seq_lists"
 
 
 def sample_n(data, num, seed=None):
@@ -43,6 +48,10 @@ class EndomapperDense(BaseDataset):
         "val_split": "val_seqs.txt",
         "val_num_per_scene": None,
         "val_pairs": None,
+        # Overfit (val-like) split
+        "overfit_split": None,
+        "overfit_num_per_scene": None,
+        "overfit_pairs": None,
         # Test
         "test_split": "test_seqs.txt",
         "test_num_per_scene": None,
@@ -95,87 +104,114 @@ class _PairDataset(torch.utils.data.Dataset):
 
         split_conf = conf[split + "_split"]
         if isinstance(split_conf, (str, Path)):
-            scenes_path = scene_lists_path / split_conf
-            scenes = scenes_path.read_text().rstrip("\n").split("\n")
+            seqs_maps_path = seq_lists_path / split_conf
+            seqs_maps = seqs_maps_path.read_text().rstrip("\n").split("\n")
         elif isinstance(split_conf, Iterable):
-            scenes = list(split_conf)
+            seqs_maps = list(split_conf)
         else:
             raise ValueError(f"Unknown split configuration: {split_conf}.")
-        scenes = sorted(set(scenes))
+        seqs_maps = sorted(set(seqs_maps))
+
+        npz_dir = self.root / self.conf.info_dir
+        for seq_map in seqs_maps:
+            matching_files = sorted(npz_dir.glob(f"{seq_map}.npz"))
+            if not matching_files:
+                raise FileExistsError(f"No maps found for sequence {seq_map} in {npz_dir}")
+                
+
+        logger.info(f"Found {len(seqs_maps)} maps from for {split} split")
+
 
         if conf.load_features.do:
             self.feature_loader = CacheLoader(conf.load_features)
-
         self.preprocessor = ImagePreprocessor(conf.preprocessing)
 
         self.images = {}
         self.depths = {}
-        self.poses = {}
-        self.intrinsics = {}
-        self.overlaps = {}
         self.cameras = {}
-        self.camera_indices = {}
-        self.valid = {}
+
+        self.seq: Dict[str, str] = {}
+        self.map_id: Dict[str, str] = {}
+        self.image_names: Dict[str, np.ndarray] = {}
+        self.image_sizes: Dict[str, np.ndarray] = {}
+        self.camera_ids: Dict[str, np.ndarray] = {}
+        self.poses: Dict[str, np.ndarray] = {}
+        self.intrinsics: Dict[str, np.ndarray] = {}
+        self.valid: Dict[str, np.ndarray] = {}
+        self.point3D_ids_all: Dict[str, np.ndarray] = {}
+        self.point3D_coords_all: Dict[str, np.ndarray] = {}
+        self.overlap_matrix: Dict[str, np.ndarray] = {}
+        self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
 
         self.info_dir = self.root / self.conf.info_dir
-        self.scenes = []
-        for scene in scenes:
-            path = self.info_dir / (scene + ".npz")
+        self.seqs_maps = []
+        for seq_map in seqs_maps:
+            path = self.info_dir / (seq_map + ".npz")
             try:
                 with np.load(str(path), allow_pickle=True) as info:
-                    self.images[scene] = info["image_paths"]
-                    self.depths[scene] = info["depth_paths"]
-                    self.poses[scene] = info["poses"]
-                    self.intrinsics[scene] = info["intrinsics"]
-                    self.overlaps[scene] = info["overlap_matrix"].astype(
+                    self.images[seq_map] = info["image_paths"]
+                    self.depths[seq_map] = info["depth_paths"]
+                    self.cameras[seq_map] = info["cameras"]
+
+                    self.image_names[seq_map] = info["image_names"]
+                    self.image_sizes[seq_map] = info["image_sizes"]
+                    self.camera_ids[seq_map] = info["camera_ids"]
+                    self.poses[seq_map] = info["poses"]
+                    self.intrinsics[seq_map] = info["intrinsics"]
+                    self.map_id[seq_map] = str(np.asarray(info["map_id"]).item())
+                    self.seq[seq_map] = str(np.asarray(info["seq"]).item())
+                    self.point3D_ids_all[seq_map] = info["point3D_ids"]
+                    self.point3D_coords_all[seq_map] = info["point3D_coords"]
+                    self.overlap_matrix[seq_map] = info["overlap_matrix"].astype(
                         np.float32, copy=False
                     )
-                    self.cameras[scene] = info["cameras"]
-                    self.camera_indices[scene] = info["camera_indices"]
+
             except Exception:
                 logger.warning(
-                    "Cannot load scene info for scene %s at %s.", scene, path
+                    "Cannot load seq_map info for seq_map %s at %s.", seq_map, path
                 )
                 continue
-
-            self.valid[scene] = self._compute_valid(scene)
-            valid_count = int(self.valid[scene].sum())
-            total_count = len(self.valid[scene])
+            #HARDCODE safety net for loading depths+images from ongoing dataset
+            self.valid[seq_map] = self._compute_valid(seq_map)
+            valid_count = int(self.valid[seq_map].sum())
+            total_count = len(self.valid[seq_map])
             if valid_count == 0:
-                logger.warning("Skipping %s: no valid frames after filtering.", scene)
+                logger.warning("Skipping %s: no valid frames after filtering.", seq_map)
                 continue
             if valid_count < total_count:
                 logger.info(
-                    "Scene %s: using %d/%d frames with required files.",
-                    scene,
+                    "Seq_map %s: using %d/%d frames with required files.",
+                    seq_map,
                     valid_count,
                     total_count,
                 )
-            self.scenes.append(scene)
+            self.seqs_maps.append(seq_map)
+            #HARDCODE safety net for loading depths+images from ongoing dataset
 
-        if len(self.scenes) == 0:
+
+        if len(self.seqs_maps) == 0:
             raise ValueError(
-                f"No valid EndomapperDense scenes for split '{split}'. "
-                f"Check scene list in {scene_lists_path} and NPZ files in {self.info_dir}."
+                f"No valid EndomapperDense seq_map for split '{split}'. "
+                f"Check seq_map list in {seq_lists_path} and NPZ files in {self.info_dir}."
             )
 
         if load_sample:
             self.sample_new_items(conf.seed)
             assert len(self.items) > 0
 
-    def _compute_valid(self, scene):
-        n = len(self.images[scene])
+    def _compute_valid(self, seq_map):
+        n = len(self.images[seq_map])
         valid = np.ones(n, dtype=bool)
         if self.conf.read_image:
             image_exists = np.fromiter(
-                ((self.root / str(path)).exists() for path in self.images[scene]),
+                ((self.root / str(path)).exists() for path in self.images[seq_map]),
                 dtype=bool,
                 count=n,
             )
             valid &= image_exists
         if self.conf.read_depth:
             depth_exists = np.fromiter(
-                ((self.root / str(path)).exists() for path in self.depths[scene]),
+                ((self.root / str(path)).exists() for path in self.depths[seq_map]),
                 dtype=bool,
                 count=n,
             )
@@ -196,79 +232,79 @@ class _PairDataset(torch.utils.data.Dataset):
         rotated.model = camera.model
         return rotated.float()
 
-    def _load_camera(self, scene, idx, K):
-        try:
-            cam_idx = int(np.asarray(self.camera_indices[scene][idx]).item())
-            return Camera.from_npz(self.cameras[scene][cam_idx]).float()
-        except Exception:
-            return Camera.from_calibration_matrix(K).float()
-
+    def _load_camera(self, seq_map, idx):
+        cam_idx = int(np.asarray(self.camera_indices[seq_map][idx]).item())
+        return Camera.from_npz(self.cameras[seq_map][cam_idx]).float()
 
     def sample_new_items(self, seed):
         logger.info("Sampling new %s data with seed %d.", self.split, seed)
         self.items = []
         split = self.split
-        num_per_scene = self.conf[self.split + "_num_per_scene"]
-        if isinstance(num_per_scene, Iterable):
-            num_pos, num_neg = num_per_scene
+        num_per_seq = self.conf[self.split + "_num_per_scene"]
+        if isinstance(num_per_seq, Iterable):
+            num_pos, num_neg = num_per_seq
         else:
-            num_pos = num_per_scene
+            num_pos = num_per_seq
             num_neg = None
         if split != "train" and self.conf[split + "_pairs"] is not None:
             assert num_pos is None
             assert num_neg is None
             assert self.conf.views == 2
-            pairs_path = scene_lists_path / self.conf[split + "_pairs"]
+            pairs_path = seq_lists_path / self.conf[split + "_pairs"]
             for line in pairs_path.read_text().strip().splitlines():
-                im0, im1 = line.split()
-                scene = im0.split("/")[0]
-                if scene not in self.images:
+                #TODO adapt to new val_pairs.txt. Adapted from endomapper.py
+                seq = line.split("/")[0]
+                im0_name = str(line.split("/")[1].split("_")[1].strip(".png"))
+                im1_name = str(line.split("/")[1].split("_")[-1].strip(".png"))
+                if seq not in self.image_names:                    
                     # Legacy strict behavior:
                     # assert scene in self.images
                     continue
-                if im1.split("/")[0] != scene:
-                    # Legacy strict behavior:
-                    # assert im1.split("/")[0] == scene
-                    continue
-                im0, im1 = [self.conf.image_subpath + im for im in [im0, im1]]
-                if im0 not in self.images[scene] or im1 not in self.images[scene]:
+                if im0_name not in self.image_names[seq] or im1_name not in self.image_names[seq]:
                     # Legacy strict behavior:
                     # assert im0 in self.images[scene]
                     # assert im1 in self.images[scene]
                     continue
-                idx0 = np.where(self.images[scene] == im0)[0]
-                idx1 = np.where(self.images[scene] == im1)[0]
+                idx0 = np.where(self.image_names[seq] == im0_name)[0]
+                idx1 = np.where(self.image_names[seq] == im1_name)[0]
                 if len(idx0) == 0 or len(idx1) == 0:
                     continue
-                if not (self.valid[scene][idx0[0]] and self.valid[scene][idx1[0]]):
+                if not (self.valid[seq][idx0[0]] and self.valid[seq][idx1[0]]):
                     continue
-                self.items.append((scene, idx0[0], idx1[0], 1.0))
+                overlap = self.overlap_matrix[seq][idx0[0], idx1[0]]
+                self.items.append((seq, im0_name, im1_name, overlap))
+        #Not tested this if statement
         elif self.conf.views == 1:
-            for scene in self.scenes:
-                # Legacy behavior (preprocessed arrays used None markers):
-                # valid = (self.images[scene] != None) | (  # noqa: E711
-                #     self.depths[scene] != None  # noqa: E711
-                # )
-                ids = np.where(self.valid[scene])[0]
+            for seq in self.seqs_maps:
+                if seq not in self.image_names:
+                    continue
+                valid = self.valid.get(seq, None)
+                if valid is None:
+                    continue
+                ids = np.where(valid)[0]
                 if num_pos and len(ids) > num_pos:
                     ids = np.random.RandomState(seed).choice(
                         ids, num_pos, replace=False
                     )
-                ids = [(scene, i) for i in ids]
+                ids = [(seq, i) for i in ids]
                 self.items.extend(ids)
         else:
-            for scene in self.scenes:
+            for seq_map in self.seqs_maps:
                 # Legacy behavior (None-marker filtering):
                 # valid = (self.images[scene] != None) & (  # noqa: E711
                 #     self.depths[scene] != None  # noqa: E711
                 # )
-                valid = self.valid[scene]
+
+                #HARDCODE SAFETY NET, leave mat
+                valid = self.valid[seq_map]
                 if not np.any(valid):
                     continue
-                ind = np.where(valid)[0]
-                mat = self.overlaps[scene][valid][:, valid]
-                if mat.size == 0:
-                    continue
+                mat = self.overlap_matrix[seq_map].astype(np.float32, copy=True)
+                invalid = ~valid
+                mat[invalid, :] = -1.0
+                mat[:, invalid] = -1.0
+                #HARDCODE SAFETY NET
+
 
                 if num_pos is not None:
                     num_bins = self.conf.num_overlap_bins
@@ -284,45 +320,130 @@ class _PairDataset(torch.utils.data.Dataset):
                         pairs_bin = (mat > bin_min) & (mat <= bin_max)
                         pairs_bin = np.stack(np.where(pairs_bin), -1)
                         pairs_all.append(pairs_bin)
+                    # Skip bins with too few samples
                     has_enough_samples = [len(p) >= num_per_bin * 2 for p in pairs_all]
+                    if not any(has_enough_samples):
+                        logger.warning(
+                            "Skipping %s: no bins with enough pairs for sampling.",
+                            seq_map,
+                        )
+                        continue
+                    if not all(has_enough_samples):
+                        used_bins = [
+                            str(i + 1)
+                            for i, keep in enumerate(has_enough_samples)
+                            if keep
+                        ]
+                        logger.warning(
+                            "Sampling %s with bins %s.",
+                            seq_map,
+                            ",".join(used_bins),
+                        )
                     num_per_bin_2 = num_pos // max(1, sum(has_enough_samples))
                     pairs = []
                     for pairs_bin, keep in zip(pairs_all, has_enough_samples):
                         if keep:
-                            sampled = sample_n(pairs_bin, num_per_bin_2, seed)
-                            if len(sampled) > 0:
-                                pairs.append(sampled)
-                    if len(pairs) == 0:
-                        continue
+                            pairs.append(sample_n(pairs_bin, num_per_bin_2, seed))
                     pairs = np.concatenate(pairs, 0)
                 else:
                     pairs = (mat > self.conf.min_overlap) & (
                         mat <= self.conf.max_overlap
                     )
                     pairs = np.stack(np.where(pairs), -1)
-                    if len(pairs) == 0:
-                        continue
 
-                pairs = [(scene, ind[i], ind[j], mat[i, j]) for i, j in pairs]
+                image_names = self.image_names[seq_map]
+                pairs = [
+                    (seq_map, image_names[i], image_names[j], mat[i, j]) for i, j in pairs
+                ]
                 if num_neg is not None:
                     neg_pairs = np.stack(np.where(mat <= 0.0), -1)
                     neg_pairs = sample_n(neg_pairs, num_neg, seed)
-                    pairs += [(scene, ind[i], ind[j], mat[i, j]) for i, j in neg_pairs]
+                    pairs += [
+                        (seq_map, image_names[i], image_names[j], mat[i, j])
+                        for i, j in neg_pairs
+                    ]
                 self.items.extend(pairs)
         if self.conf.views == 2 and self.conf.sort_by_overlap:
             self.items.sort(key=lambda i: i[-1], reverse=True)
         else:
             np.random.RandomState(seed).shuffle(self.items)
 
-    def _read_view(self, scene, idx):
-        path = self.root / self.images[scene][idx]
+    def _read_view(self, seq_map, image_name):
+        image_names = self.image_names[seq_map]
+        idx = np.where(image_names == image_name)[0][0]
+        path = self.root / self.conf.info_dir / f"{seq_map}.npz"
+        T = self.poses[seq_map][idx].astype(np.float32, copy=False)
+        K = self.intrinsics[seq_map][idx].astype(np.float32, copy=True)
 
-        K = self.intrinsics[scene][idx].astype(np.float32, copy=True)
-        T = self.poses[scene][idx].astype(np.float32, copy=False)
-        camera = self._load_camera(scene, idx, K)
+        # camera = self._load_camera(seq_map, idx)
+
+        try:
+            info_npz = np.load(str(path), allow_pickle=True)
+        except Exception:
+            logger.error(
+                "Failed to open NPZ: path=%s seq_map=%s image_name=%s idx=%d",
+                path,
+                seq_map,
+                image_name,
+                idx,
+                exc_info=True,
+            )
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    bad_member = zf.testzip()
+                if bad_member:
+                    logger.error("zipfile.testzip() bad member: %s", bad_member)
+                else:
+                    logger.error("zipfile.testzip() did not find bad members.")
+            except Exception as zip_error:
+                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGINT)
+                except Exception as kill_error:
+                    logger.error("Failed to signal process group: %s", kill_error)
+                os._exit(1)
+            raise SystemExit(1)
+
+        try:
+            with info_npz:
+                point3D_ids = torch.from_numpy(info_npz["point3D_ids_per_image"][idx]).float()
+                camera = Camera.from_npz(
+                    info_npz["cameras"][
+                        int(np.asarray(info_npz["camera_indices"][idx]).item())
+                    ]
+                ).float()
+        except Exception:
+            logger.error(
+                "Failed to read NPZ content: path=%s seq_map=%s image_name=%s idx=%d",
+                path,
+                seq_map,
+                image_name,
+                idx,
+                exc_info=True,
+            )
+            try:
+                with zipfile.ZipFile(path) as zf:
+                    bad_member = zf.testzip()
+                if bad_member:
+                    logger.error("zipfile.testzip() bad member: %s", bad_member)
+                else:
+                    logger.error("zipfile.testzip() did not find bad members.")
+            except Exception as zip_error:
+                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
+            worker_info = torch.utils.data.get_worker_info()
+            if worker_info is not None:
+                try:
+                    os.killpg(os.getpgrp(), signal.SIGINT)
+                except Exception as kill_error:
+                    logger.error("Failed to signal process group: %s", kill_error)
+                os._exit(1)
+            raise SystemExit(1)
 
         if self.conf.read_image:
-            img = load_image(path, self.conf.grayscale)
+            img_path = self.root / str(self.images[seq_map][idx])
+            img = load_image(img_path)
         else:
             cam_size = camera.size.cpu().numpy().astype(np.int32)
             size = int(cam_size[1]), int(cam_size[0])
@@ -338,7 +459,7 @@ class _PairDataset(torch.utils.data.Dataset):
         camera = camera.crop(crop_left_top, (img.shape[-1], img.shape[-2]))
 
         if self.conf.read_depth:
-            depth_path = self.root / str(self.depths[scene][idx])
+            depth_path = self.root / str(self.depths[seq_map][idx])
             try:
                 with np.load(str(depth_path)) as depth_data:
                     depth = depth_data["depth"].astype(np.float32, copy=False)
@@ -367,6 +488,7 @@ class _PairDataset(torch.utils.data.Dataset):
         else:
             depth = None
 
+        #Not tested
         do_rotate = self.conf.p_rotate > 0.0 and self.split == "train"
         if do_rotate:
             p = self.conf.p_rotate
@@ -391,13 +513,15 @@ class _PairDataset(torch.utils.data.Dataset):
 
         data = {
             "name": name,
-            "scene": scene,
+            "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
             "depth": depth,
             "camera": camera,
+            "point3D_ids": point3D_ids,
             **data,
         }
 
+        #Not tested
         if self.conf.load_features.do:
             features = self.feature_loader({k: [v] for k, v in data.items()})
             if do_rotate and k != 0:
@@ -459,8 +583,8 @@ def visualize(args):
         "sort_by_overlap": False,
         "train_num_per_scene": 5,
         "batch_size": 1,
-        "num_workers": 0,
-        "prefetch_factor": None,
+        "num_workers": 1,
+        "prefetch_factor": 2,
         "val_num_per_scene": None,
     }
     conf = OmegaConf.merge(conf, OmegaConf.from_cli(args.dotlist))

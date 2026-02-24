@@ -55,9 +55,41 @@ def _save_figures(figs, names, save_dir):
         plt.close(fig)
 
 
+def _build_sfm_plot_gt(data):
+    if "point3D_ids0" not in data or "point3D_ids1" not in data:
+        return None
+    ids0 = data["point3D_ids0"].long()
+    ids1 = data["point3D_ids1"].long()
+    valid0 = ids0 >= 0
+    valid1 = ids1 >= 0
+    same = (ids0.unsqueeze(-1) == ids1.unsqueeze(-2)) & valid0.unsqueeze(
+        -1
+    ) & valid1.unsqueeze(-2)
+    has0 = same.any(-1)
+    has1 = same.any(-2)
+    idx0 = same.float().argmax(-1)
+    idx1 = same.float().argmax(-2)
+
+    m0 = torch.full_like(ids0, -2, dtype=torch.long)
+    m1 = torch.full_like(ids1, -2, dtype=torch.long)
+    m0 = torch.where(has0, idx0, m0)
+    m1 = torch.where(has1, idx1, m1)
+    z0 = torch.zeros_like(has0)
+    z1 = torch.zeros_like(has1)
+    return {
+        "matches0": m0,
+        "matches1": m1,
+        "mask_pos_3d_map0": has0,
+        "mask_pos_3d_map1": has1,
+        "mask_pos_reproj0": z0,
+        "mask_pos_reproj1": z1,
+    }
+
+
 class SparseDenseDepthMatcher(BaseModel):
     default_conf = {
-        "use_gt_pos": False,
+        "use_gt_pos_for_plot": False,
+        "use_gt_pos": False,  # legacy alias, plotting-only
         "th_positive": 3.0,
         "th_negative": 5.0,
         "th_epi": None,  # add some more epi outliers
@@ -74,8 +106,8 @@ class SparseDenseDepthMatcher(BaseModel):
         # "sparse_depth1",
         # "valid_3D_mask0",
         # "valid_3D_mask1",
-        "point3D_ids0",
-        "point3D_ids1",
+        # "point3D_ids0",
+        # "point3D_ids1",
     ]
 
     def _init(self, conf):
@@ -105,7 +137,6 @@ class SparseDenseDepthMatcher(BaseModel):
             neg_th=self.conf.th_negative,
             epi_th=self.conf.th_epi,
             cc_th=self.conf.th_consistency,
-            use_gt_pos=self.conf.use_gt_pos,
             **kw,
         )
         if self.conf.save_fig_when_debug:
@@ -128,14 +159,27 @@ class SparseDenseDepthMatcher(BaseModel):
                 save_dir = base_dir / "seq_map_gt_viz"
                 _save_figures(figs, names, save_dir)
 
-                gt_pos_figs = make_gt_pos_figs(
+                gt_pos_reproj_figs = make_gt_pos_figs(
                     gt,
                     data,
                     n_pairs=data["keypoints0"].shape[0],
                     pos_th=self.conf.th_positive,
                 )
-                pos_dir = base_dir / "seq_map_gt_pos"
-                _save_figures(gt_pos_figs, names, pos_dir)
+                pos_reproj_dir = base_dir / "seq_map_gt_pos_reproj"
+                _save_figures(gt_pos_reproj_figs, names, pos_reproj_dir)
+
+                use_gt_pos_for_plot = self.conf.use_gt_pos_for_plot or self.conf.use_gt_pos
+                if use_gt_pos_for_plot:
+                    gt_sfm = _build_sfm_plot_gt(data)
+                    if gt_sfm is not None:
+                        gt_pos_sfm_figs = make_gt_pos_figs(
+                            gt_sfm,
+                            data,
+                            n_pairs=data["keypoints0"].shape[0],
+                            pos_th=self.conf.th_positive,
+                        )
+                        pos_sfm_dir = base_dir / "seq_map_gt_pos_sfm"
+                        _save_figures(gt_pos_sfm_figs, names, pos_sfm_dir)
         return gt
 
     def loss(self, pred, data):
