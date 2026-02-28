@@ -3,7 +3,7 @@ data:
     data_dir: revisitop1m
     train_size: 150000
     val_size: 2000
-    batch_size: 16
+    batch_size: 64
     num_workers: 8
     homography:
         difficulty: 0.7
@@ -14,21 +14,21 @@ model:
     name: two_view_pipeline
     extractor:
         name: extractors.sift
-        backend: py_cudasift
+        backend: pycolmap_cuda
         max_num_keypoints: 1024
         force_num_keypoints: True
         nms_radius: 3
         trainable: False
-        detection_threshold: 0.4  # 0.0066667 from COLMAP; scale by 255 for cudasift
+        detection_threshold: 1e-12  # 0.0066667 from COLMAP; scale by 255 for cudasift
         rootsift: true
         first_octave: -1           #Defualt for pycolmap -1; I think that for cudasift is the same as 0
-        num_octaves: 3            # Colmap: 4; Colon: 3; Imitation for Cudasift: 6
+        num_octaves: 4            # Colmap: 4; Colon: 3; Imitation for Cudasift: 6
         init_blur: 2.0             # Only used by py_cudasift; Colon: 2.0;  CudaSift default: 1.0
         filter_kpts_with_wrapper: false   # Only for py_cudasift. Truncate max kpts as Cudasift.
-        filter_with_scale_weighting: false  # for all that has scores. Multiply scores by scales.
+        filter_with_scale_weighting: True  # for all that has scores. Multiply scores by scales.
         extractor_channel: grayscale         # Colon: green.
-        filter_with_lowest_scale: false     # Default is false. Only for those who dont have scores, scale as filter proxy. 
-                                                # If true, get the lowest scale filter. 
+        filter_with_lowest_scale: false     # Default is false. Only for those who dont have scores, scale as filter proxy.  
+        random_topk: False,  # if True, pick random topk even when scores are available 
     ground_truth:
         name: matchers.homography_matcher
         th_positive: 3
@@ -36,7 +36,7 @@ model:
     matcher:
         name: matchers.lightglue
         filter_threshold: 0.1
-        flash: false
+        flash: true
         checkpointed: true
         add_scale_ori: true
         input_dim: 128

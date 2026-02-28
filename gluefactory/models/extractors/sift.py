@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 import cv2
@@ -18,6 +19,10 @@ except ImportError:
 
 from ..base_model import BaseModel
 from ..utils.misc import pad_to_length
+from ..models.cache_loader import pad_local_features
+
+
+logger = logging.getLogger(__name__)
 
 
 def filter_dog_point(points, scales, angles, image_shape, nms_radius, scores=None):
@@ -98,6 +103,7 @@ class SIFT(BaseModel):
         "extractor_channel": "grayscale",  # in {grayscale, red, green, blue}
         "filter_with_lowest_scale": False,  # keep smallest scales when no scores
         "force_num_keypoints": False,
+        "random_topk": False,  # if True, pick random topk even when scores are available
     }
 
     required_data_keys = ["image"]
@@ -140,7 +146,7 @@ class SIFT(BaseModel):
                     )
                 else: 
                     # options["max_num_features"] = self.conf.max_num_keypoints
-                    options.max_num_features = self.conf.max_num_keypoints
+                    options.max_num_features = 10000
 
             else: 
                 options = pycolmap.FeatureExtractionOptions()
@@ -155,7 +161,7 @@ class SIFT(BaseModel):
                 sift_opts.first_octave = self.conf.first_octave
                 sift_opts.num_octaves = self.conf.num_octaves
                 sift_opts.normalization = pycolmap.Normalization.L2  # L1_ROOT is buggy.
-                sift_opts.max_num_features = self.conf.max_num_keypoints
+                sift_opts.max_num_features = 10000
 
                 device = (
                     pycolmap.Device.auto if backend == "pycolmap"
@@ -198,13 +204,10 @@ class SIFT(BaseModel):
                 scores = None  # Scores are not exposed by COLMAP anymore.
             else:
                 detections, scores, descriptors = self.sift.extract(image_np)
+                scores = np.abs(scores)
+                logger.debug("Succesfully load scores!")
             keypoints = detections[:, :2]  # Keep only (x, y).
             scales, angles = detections[:, -2:].T
-            if scores is not None and (
-                self.conf.backend == "pycolmap_cpu" or not pycolmap.has_cuda
-            ):
-                # Normalize scores to non-negative; optional scale weighting is applied later.
-                scores = np.abs(scores)
         elif self.conf.backend == "opencv":
             # TODO: Check if opencv keypoints are already in corner convention
             keypoints, scores, scales, angles, descriptors = run_opencv_sift(
@@ -238,6 +241,8 @@ class SIFT(BaseModel):
         }
         if scores is not None:
             pred["keypoint_scores"] = scores
+        else: 
+            raise ValueError("keypoint_scores can´t be none")
 
         # sometimes pycolmap returns points outside the image. We remove them
         if self.conf.backend.startswith("pycolmap"):
@@ -246,6 +251,10 @@ class SIFT(BaseModel):
             ).all(-1)
             pred = {k: v[is_inside] for k, v in pred.items()}
 
+            logger.debug(
+                "SIFT [%s]: %d keypoints BEFORE NMS (radius=%d)",
+                self.conf.backend, len(pred["keypoints"]), self.conf.nms_radius,
+            )
         if self.conf.nms_radius is not None:
             keep = filter_dog_point(
                 pred["keypoints"],
@@ -256,6 +265,10 @@ class SIFT(BaseModel):
                 pred.get("keypoint_scores", None),
             )
             pred = {k: v[keep] for k, v in pred.items()}
+            logger.debug(
+                "SIFT [%s]: %d keypoints AFTER NMS (radius=%d)",
+                self.conf.backend, len(pred["keypoints"]), self.conf.nms_radius,
+            )
 
         pred = {k: torch.from_numpy(v) for k, v in pred.items()}
 
@@ -265,10 +278,13 @@ class SIFT(BaseModel):
         if num_points is not None and len(pred["keypoints"]) > num_points:
             # Prefer keypoint scores if available; otherwise fall back to scales
             if "keypoint_scores" in pred:
-                ranking_scores = pred["keypoint_scores"]
-                if self.conf.filter_with_scale_weighting:
-                    ranking_scores = ranking_scores * pred["scales"]
-                indices = torch.topk(ranking_scores, num_points).indices
+                if self.conf.random_topk:
+                    indices = torch.randperm(len(pred["keypoints"]))[:num_points]
+                else:
+                    ranking_scores = pred["keypoint_scores"]
+                    if self.conf.filter_with_scale_weighting:
+                        ranking_scores = ranking_scores * pred["scales"]
+                    indices = torch.topk(ranking_scores, num_points).indices
             else:
                 # Use scales as a proxy for keypoint quality when scores are unavailable.
                 # largest=False keeps the smallest scales (min-k), largest=True keeps max-k.
@@ -279,10 +295,6 @@ class SIFT(BaseModel):
                 ).indices
             pred = {k: v[indices] for k, v in pred.items()}
 
-        # # Prints to debug to find optimal parameters for endomapper
-        # num_keypoints = len(pred["keypoints"])
-        # print(f"Number of keypoints: {num_keypoints}") 
-
         detected_keypoints = len(pred["keypoints"])
         padded_keypoints = 0
 
@@ -290,6 +302,8 @@ class SIFT(BaseModel):
             num_points = max(self.conf.max_num_keypoints, detected_keypoints)
             padded_keypoints = max(0, num_points - detected_keypoints)
 
+            pred["valid_depth_keypoints"] = torch.ones(detected_keypoints, dtype=torch.bool)
+            # keypoints need explicit bounds in case d==0 (no detections)
             pred["keypoints"] = pad_to_length(
                 pred["keypoints"],
                 num_points,
@@ -297,18 +311,14 @@ class SIFT(BaseModel):
                 mode="random_c",
                 bounds=(0, min(image.shape[1:])),
             )
-            pred["scales"] = pad_to_length(pred["scales"], num_points, -1, mode="zeros")
-            pred["oris"] = pad_to_length(pred["oris"], num_points, -1, mode="zeros")
-            pred["descriptors"] = pad_to_length(
-                pred["descriptors"], num_points, -2, mode="zeros"
-            )
-            if pred.get("keypoint_scores", None) is not None:
-                scores = pad_to_length(
-                    pred["keypoint_scores"], num_points, -1, mode="zeros"
-                )
-                pred["keypoint_scores"] = scores
+            pred = pad_local_features(pred, num_points)
+
         pred["num_keypoints_detected"] = torch.tensor(detected_keypoints)
         pred["num_keypoints_padded"] = torch.tensor(padded_keypoints)
+        logger.debug(
+            "SIFT [%s]: detected=%d, padded=%d",
+            self.conf.backend, detected_keypoints, padded_keypoints,
+        )
         return pred
 
     def _forward(self, data: dict) -> dict:

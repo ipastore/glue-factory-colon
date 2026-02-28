@@ -28,7 +28,13 @@ def make_match_figures(pred_, data_, n_pairs=2):
         images.append(
             [view0["image"][i].permute(1, 2, 0), view1["image"][i].permute(1, 2, 0)]
         )
-        kpts.append([kp0[i], kp1[i]])
+        kp0_i = kp0[i]
+        kp1_i = kp1[i]
+        if "valid_depth_keypoints0" in data and data["valid_depth_keypoints0"] is not None:
+            kp0_i = kp0_i[data["valid_depth_keypoints0"][i]]
+        if "valid_depth_keypoints1" in data and data["valid_depth_keypoints1"] is not None:
+            kp1_i = kp1_i[data["valid_depth_keypoints1"][i]]
+        kpts.append([kp0_i, kp1_i])
         matches.append((kpm0, kpm1))
 
         correct = gtm0[i][valid] == m0[i][valid]

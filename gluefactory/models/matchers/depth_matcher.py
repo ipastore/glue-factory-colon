@@ -56,7 +56,13 @@ class DepthMatcher(BaseModel):
                     "valid_depth_keypoints1",
                 ]
                 kw = {k: data[k] for k in keys}
-            else:
+            elif "valid_depth_keypoints0" in data:
+                keys = [
+                    "valid_depth_keypoints0",
+                    "valid_depth_keypoints1",
+                ]
+                kw = {k: data[k] for k in keys}
+            else: 
                 kw = {}
             result = gt_matches_from_pose_depth(
                 data["keypoints0"],

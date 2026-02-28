@@ -259,6 +259,17 @@ def gt_matches_from_pose_depth(
     if "depth_keypoints0" in kw and "depth_keypoints1" in kw:
         d0, valid0 = kw["depth_keypoints0"], kw["valid_depth_keypoints0"]
         d1, valid1 = kw["depth_keypoints1"], kw["valid_depth_keypoints1"]
+    elif "valid_depth_keypoints0" in kw:
+        assert depth0 is not None
+        assert depth1 is not None
+        assert kw["valid_depth_keypoints0"] is not None
+        assert kw["valid_depth_keypoints1"] is not None
+
+        d0, valid0 = sample_depth(kp0, depth0)
+        d1, valid1 = sample_depth(kp1, depth1)
+        valid0 = valid0 & kw["valid_depth_keypoints0"]
+        valid1 = valid1 & kw["valid_depth_keypoints1"]
+
     else:
         assert depth0 is not None
         assert depth1 is not None
@@ -336,7 +347,10 @@ def gt_matches_from_pose_depth(
 
 
 @torch.no_grad()
-def gt_matches_from_homography(kp0, kp1, H, pos_th=3, neg_th=6, **kw):
+def gt_matches_from_homography(
+    kp0, kp1, H, pos_th=3, neg_th=6,
+    valid_mask0=None, valid_mask1=None, **kw
+):
     if kp0.shape[1] == 0 or kp1.shape[1] == 0:
         b_size, n_kp0 = kp0.shape[:2]
         n_kp1 = kp1.shape[1]
@@ -354,6 +368,12 @@ def gt_matches_from_homography(kp0, kp1, H, pos_th=3, neg_th=6, **kw):
     dist1 = torch.sum((kp0.unsqueeze(-2) - kp1_0.unsqueeze(-3)) ** 2, -1)
     dist = torch.max(dist0, dist1)
 
+    inf = dist.new_tensor(float("inf"))
+    valid0 = valid_mask0 if valid_mask0 is not None else torch.ones(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
+    valid1 = valid_mask1 if valid_mask1 is not None else torch.ones(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
+    mask_visible = valid0.unsqueeze(-1) & valid1.unsqueeze(-2)
+    dist = torch.where(mask_visible, dist, inf)
+
     reward = (dist < pos_th**2).float() - (dist > neg_th**2).float()
 
     min0 = dist.min(-1).indices
@@ -365,8 +385,8 @@ def gt_matches_from_homography(kp0, kp1, H, pos_th=3, neg_th=6, **kw):
     ismin1.scatter_(-2, min1.unsqueeze(-2), value=1)
     positive = ismin0 & ismin1 & (dist < pos_th**2)
 
-    negative0 = dist0.min(-1).values > neg_th**2
-    negative1 = dist1.min(-2).values > neg_th**2
+    negative0 = (dist0.min(-1).values > neg_th**2) & valid0
+    negative1 = (dist1.min(-2).values > neg_th**2) & valid1
 
     # pack the indices of positive matches
     # if -1: unmatched point
