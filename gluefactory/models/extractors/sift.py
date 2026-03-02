@@ -19,7 +19,6 @@ except ImportError:
 
 from ..base_model import BaseModel
 from ..utils.misc import pad_to_length
-from ..models.cache_loader import pad_local_features
 
 
 logger = logging.getLogger(__name__)
@@ -311,7 +310,18 @@ class SIFT(BaseModel):
                 mode="random_c",
                 bounds=(0, min(image.shape[1:])),
             )
-            pred = pad_local_features(pred, num_points)
+            
+            pred["scales"] = pad_to_length(pred["scales"], num_points, -1, mode="zeros")
+            pred["oris"] = pad_to_length(pred["oris"], num_points, -1, mode="zeros")
+            pred["descriptors"] = pad_to_length(
+                pred["descriptors"], num_points, -2, mode="zeros"
+            )
+            pred["valid_depth_keypoints"] = pad_to_length(pred["valid_depth_keypoints"], num_points, -1, mode="zeros")
+            if pred.get("keypoint_scores", None) is not None:
+                scores = pad_to_length(
+                    pred["keypoint_scores"], num_points, -1, mode="zeros"
+                )
+                pred["keypoint_scores"] = scores
 
         pred["num_keypoints_detected"] = torch.tensor(detected_keypoints)
         pred["num_keypoints_padded"] = torch.tensor(padded_keypoints)
