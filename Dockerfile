@@ -132,7 +132,8 @@ RUN useradd -m -u "${USER_UID}" -s /bin/bash "${USERNAME}" && \
     chown -R "${USERNAME}:${USERNAME}" /workspace
 
 ENV PATH="${CONDA_DIR}/envs/${CONDA_ENV}/bin:${CONDA_DIR}/bin:$PATH" \
-    CONDA_DEFAULT_ENV="${CONDA_ENV}"
+    CONDA_DEFAULT_ENV="${CONDA_ENV}" \
+    LD_LIBRARY_PATH="${CONDA_DIR}/envs/${CONDA_ENV}/lib:${LD_LIBRARY_PATH}"
 
 USER ${USERNAME}
 

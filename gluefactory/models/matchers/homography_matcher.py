@@ -42,8 +42,8 @@ class HomographyMatcher(BaseModel):
                 data["H_0to1"],
                 pos_th=self.conf.th_positive,
                 neg_th=self.conf.th_negative,
-                valid_mask0=data.get("valid_depth_keypoints0"),
-                valid_mask1=data.get("valid_depth_keypoints1"),
+                valid_mask0=data.get("valid_depth_keypoints0", None),
+                valid_mask1=data.get("valid_depth_keypoints1", None)
             )
         if self.conf.use_lines:
             line_assignment, line_m0, line_m1 = gt_line_matches_from_homography(

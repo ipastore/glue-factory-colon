@@ -1,9 +1,9 @@
 data:
     name: homographies
     data_dir: revisitop1m
-    train_size: 150000
-    val_size: 2000
-    batch_size: 64
+    train_size: 1500
+    val_size: 200
+    batch_size: 32
     num_workers: 8
     homography:
         difficulty: 0.7
@@ -19,7 +19,7 @@ model:
         force_num_keypoints: True
         nms_radius: 3
         trainable: False
-        detection_threshold: 1e-12  # 0.0066667 from COLMAP; scale by 255 for cudasift
+        detection_threshold: 1e-12  # 0.0066667 from COLMAP; scale by 255 for cudasift; 1e-12
         rootsift: true
         first_octave: -1           #Defualt for pycolmap -1; I think that for cudasift is the same as 0
         num_octaves: 4            # Colmap: 4; Colon: 3; Imitation for Cudasift: 6
@@ -28,14 +28,15 @@ model:
         filter_with_scale_weighting: True  # for all that has scores. Multiply scores by scales.
         extractor_channel: grayscale         # Colon: green.
         filter_with_lowest_scale: false     # Default is false. Only for those who dont have scores, scale as filter proxy.  
-        random_topk: False,  # if True, pick random topk even when scores are available 
+        random_topk: False            # if True, pick random topk even when scores are available 
+        mask_out_padded_kpts: True 
     ground_truth:
         name: matchers.homography_matcher
         th_positive: 3
         th_negative: 3
     matcher:
         name: matchers.lightglue
-        filter_threshold: 0.1
+        filter_threshold: -1
         flash: true
         checkpointed: true
         add_scale_ori: true

@@ -103,6 +103,7 @@ class SIFT(BaseModel):
         "filter_with_lowest_scale": False,  # keep smallest scales when no scores
         "force_num_keypoints": False,
         "random_topk": False,  # if True, pick random topk even when scores are available
+        "mask_out_padded_kpts": False 
     }
 
     required_data_keys = ["image"]
@@ -277,21 +278,20 @@ class SIFT(BaseModel):
         if num_points is not None and len(pred["keypoints"]) > num_points:
             # Prefer keypoint scores if available; otherwise fall back to scales
             if "keypoint_scores" in pred:
-                if self.conf.random_topk:
-                    indices = torch.randperm(len(pred["keypoints"]))[:num_points]
-                else:
-                    ranking_scores = pred["keypoint_scores"]
-                    if self.conf.filter_with_scale_weighting:
-                        ranking_scores = ranking_scores * pred["scales"]
-                    indices = torch.topk(ranking_scores, num_points).indices
+                ranking_scores = pred["keypoint_scores"]
+                if self.conf.filter_with_scale_weighting:
+                    ranking_scores = ranking_scores * pred["scales"]
+                indices = torch.topk(ranking_scores, num_points).indices
             else:
                 # Use scales as a proxy for keypoint quality when scores are unavailable.
                 # largest=False keeps the smallest scales (min-k), largest=True keeps max-k.
-                indices = torch.topk(
+                if self.conf.random_topk:
+                    indices = torch.randperm(len(pred["keypoints"]))[:num_points]
+                else: 
+                    indices = torch.topk(
                     pred["scales"],
                     num_points,
-                    largest=not self.conf.filter_with_lowest_scale,
-                ).indices
+                    largest=not self.conf.filter_with_lowest_scale).indices
             pred = {k: v[indices] for k, v in pred.items()}
 
         detected_keypoints = len(pred["keypoints"])
@@ -301,7 +301,10 @@ class SIFT(BaseModel):
             num_points = max(self.conf.max_num_keypoints, detected_keypoints)
             padded_keypoints = max(0, num_points - detected_keypoints)
 
-            pred["valid_depth_keypoints"] = torch.ones(detected_keypoints, dtype=torch.bool)
+            if self.conf.mask_out_padded_kpts:
+                pred["valid_depth_keypoints"] = torch.ones(detected_keypoints, dtype=torch.bool)
+                pred["valid_depth_keypoints"] = pad_to_length(pred["valid_depth_keypoints"], num_points, -1, mode="zeros")
+
             # keypoints need explicit bounds in case d==0 (no detections)
             pred["keypoints"] = pad_to_length(
                 pred["keypoints"],
@@ -316,7 +319,6 @@ class SIFT(BaseModel):
             pred["descriptors"] = pad_to_length(
                 pred["descriptors"], num_points, -2, mode="zeros"
             )
-            pred["valid_depth_keypoints"] = pad_to_length(pred["valid_depth_keypoints"], num_points, -1, mode="zeros")
             if pred.get("keypoint_scores", None) is not None:
                 scores = pad_to_length(
                     pred["keypoint_scores"], num_points, -1, mode="zeros"
