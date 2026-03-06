@@ -76,17 +76,12 @@ def gt_matches_from_pose_sparse_dense_map(
         )
         m0 = -torch.ones_like(kp0[:, :, 0]).long()
         m1 = -torch.ones_like(kp1[:, :, 0]).long()
-        depth0 = data["view0"].get("depth")
-        depth1 = data["view1"].get("depth")
-        if "depth_keypoints0" in kw and "depth_keypoints1" in kw:
-            d0 = kw["depth_keypoints0"]
-            d1 = kw["depth_keypoints1"]
-        else:
-            assert depth0 is not None
-            assert depth1 is not None
-            d0, _ = sample_depth(kp0, depth0)
-            d1, _ = sample_depth(kp1, depth1)
-
+        d0 = kw.get("depth_keypoints0")
+        d1 = kw.get("depth_keypoints1")
+        if d0 is None or d1 is None:
+            raise ValueError(
+                "Only working with cached features: missing depth_keypoints0/1 in cache output."
+            )
         proj_0to1 = torch.empty_like(kp0)
         proj_1to0 = torch.empty_like(kp1)
         visible0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
@@ -111,19 +106,18 @@ def gt_matches_from_pose_sparse_dense_map(
 
     depth0 = data["view0"].get("depth")
     depth1 = data["view1"].get("depth")
-    if "depth_keypoints0" in kw and "depth_keypoints1" in kw:
-        d0, valid0 = kw["depth_keypoints0"], kw["valid_depth_keypoints0"]
-        d1, valid1 = kw["depth_keypoints1"], kw["valid_depth_keypoints1"]
-    else:
-        assert depth0 is not None
-        assert depth1 is not None
-        d0, valid0 = sample_depth(kp0, depth0)
-        d1, valid1 = sample_depth(kp1, depth1)
-
-    scale0 = kw["depth_scale0"].to(device=kp0.device, dtype=d0.dtype)
-    scale1 = kw["depth_scale1"].to(device=kp1.device, dtype=d1.dtype)
-    d0 = d0 * scale0[:, None]
-    d1 = d1 * scale1[:, None]
+    d0 = kw.get("depth_keypoints0")
+    d1 = kw.get("depth_keypoints1")
+    if d0 is None or d1 is None:
+        raise ValueError(
+            "Only working with cached features: missing depth_keypoints0/1 in cache output."
+        )
+    valid0 = kw.get("valid_depth_keypoints0")
+    valid1 = kw.get("valid_depth_keypoints1")
+    if valid0 is None or valid1 is None:
+        raise ValueError(
+            "Only working with cached features: missing valid_depth_keypoints0/1 in cache output."
+        )
 
     unmatched = kp0.new_tensor(UNMATCHED_FEATURE)
     ignore = kp0.new_tensor(IGNORE_FEATURE)
@@ -140,19 +134,6 @@ def gt_matches_from_pose_sparse_dense_map(
     mask_neg_reproj1 = torch.zeros_like(mask_pos_map1)
     mask_neg_epi0 = torch.zeros_like(mask_pos_map0)
     mask_neg_epi1 = torch.zeros_like(mask_pos_map1)
-
-    # Init above
-    # ids0, ids1 = kw["point3D_ids0"].long(), kw["point3D_ids1"].long()
-
-    # Commented out, it could be use it if we pad features with invalid 3D_mask to leave them out for matching
-    # valid_3D_0, valid_3D_1 = kw["valid_3D_mask0"],  kw["valid_3D_mask1"]
-
-    ## TO ERASE, old. Mantain after confirmation of working
-    # depth0 = None
-    # depth1 = None
-    # d0, d1 = kw["sparse_depth0"], kw["sparse_depth1"]
-    # valid_d0, valid_d1 = kw["valid_depth_mask0"], kw["valid_depth_mask1"]
-    ##
 
     kp0_1, visible0 = project(
         kp0, d0, depth1, camera0, camera1, T_0to1, valid0, ccth=cc_th

@@ -96,19 +96,6 @@ class SparseDenseDepthMatcher(BaseModel):
         "th_consistency": None,  # check for projection consistency in px
         "save_fig_when_debug": False,
     }
-    required_data_keys = [
-        "view0",
-        "view1",
-        "T_0to1",
-        "keypoints0",
-        "keypoints1",
-        # "sparse_depth0",
-        # "sparse_depth1",
-        # "valid_3D_mask0",
-        # "valid_3D_mask1",
-        # "point3D_ids0",
-        # "point3D_ids1",
-    ]
 
     def _init(self, conf):
         pass
@@ -117,16 +104,11 @@ class SparseDenseDepthMatcher(BaseModel):
     def _forward(self, data):
         gt = {}
         keys = [
-            "sparse_depth0",
-            "valid_3D_mask0",
-            "sparse_depth1",
-            "valid_3D_mask1",
-            "point3D_ids0",
-            "point3D_ids1",
-            "valid_depth_mask0",
-            "valid_depth_mask1",
-            "point3D_coords0",
-            "point3D_coords1",
+                "depth_keypoints0",
+                "depth_keypoints1",
+                "valid_depth_keypoints0",
+                "valid_depth_keypoints1"
+
         ]
         kw = {k: data[k] for k in keys}
         gt = gt_matches_from_pose_sparse_dense_map(

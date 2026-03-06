@@ -138,10 +138,7 @@ class _PairDataset(torch.utils.data.Dataset):
         self.poses: Dict[str, np.ndarray] = {}
         self.intrinsics: Dict[str, np.ndarray] = {}
         self.valid: Dict[str, np.ndarray] = {}
-        self.point3D_ids_all: Dict[str, np.ndarray] = {}
-        self.point3D_coords_all: Dict[str, np.ndarray] = {}
         self.overlap_matrix: Dict[str, np.ndarray] = {}
-        self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
 
         self.info_dir = self.root / self.conf.info_dir
         self.seqs_maps = []
@@ -160,8 +157,6 @@ class _PairDataset(torch.utils.data.Dataset):
                     self.intrinsics[seq_map] = info["intrinsics"]
                     self.map_id[seq_map] = str(np.asarray(info["map_id"]).item())
                     self.seq[seq_map] = str(np.asarray(info["seq"]).item())
-                    self.point3D_ids_all[seq_map] = info["point3D_ids"]
-                    self.point3D_coords_all[seq_map] = info["point3D_coords"]
                     self.overlap_matrix[seq_map] = info["overlap_matrix"].astype(
                         np.float32, copy=False
                     )
@@ -273,12 +268,11 @@ class _PairDataset(torch.utils.data.Dataset):
                     continue
                 overlap = self.overlap_matrix[seq][idx0[0], idx1[0]]
                 self.items.append((seq, im0_name, im1_name, overlap))
-        #Not tested this if statement
         elif self.conf.views == 1:
-            for seq in self.seqs_maps:
-                if seq not in self.image_names:
+            for seq_map in self.seqs_maps:
+                if seq_map not in self.image_names:
                     continue
-                valid = self.valid.get(seq, None)
+                valid = self.valid.get(seq_map, None)
                 if valid is None:
                     continue
                 ids = np.where(valid)[0]
@@ -286,7 +280,7 @@ class _PairDataset(torch.utils.data.Dataset):
                     ids = np.random.RandomState(seed).choice(
                         ids, num_pos, replace=False
                     )
-                ids = [(seq, i) for i in ids]
+                ids = [(seq_map, self.image_names[seq_map][i]) for i in ids]
                 self.items.extend(ids)
         else:
             for seq_map in self.seqs_maps:
@@ -370,7 +364,11 @@ class _PairDataset(torch.utils.data.Dataset):
 
     def _read_view(self, seq_map, image_name):
         image_names = self.image_names[seq_map]
-        idx = np.where(image_names == image_name)[0][0]
+        if isinstance(image_name, (int, np.integer)):
+            idx = int(image_name)
+            image_name = image_names[idx]
+        else:
+            idx = np.where(image_names == image_name)[0][0]
         path = self.root / self.conf.info_dir / f"{seq_map}.npz"
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=True)
@@ -408,7 +406,6 @@ class _PairDataset(torch.utils.data.Dataset):
 
         try:
             with info_npz:
-                point3D_ids = torch.from_numpy(info_npz["point3D_ids_per_image"][idx]).float()
                 camera = Camera.from_npz(
                     info_npz["cameras"][
                         int(np.asarray(info_npz["camera_indices"][idx]).item())
@@ -502,8 +499,6 @@ class _PairDataset(torch.utils.data.Dataset):
                 camera = self._rotate_camera(camera, K, img.shape[-2:])
                 T = rotate_pose_inplane(T, k + 2)
 
-        name = path.name
-
         data = self.preprocessor(img)
         if depth is not None:
             data["depth"] = self.preprocessor(depth, interpolation="nearest")["image"][
@@ -512,12 +507,11 @@ class _PairDataset(torch.utils.data.Dataset):
         camera = camera.scale(data["scales"])
 
         data = {
-            "name": name,
+            "name": image_name,
             "seq_map": seq_map,
             "T_w2cam": Pose.from_4x4mat(T),
             "depth": depth,
             "camera": camera,
-            "point3D_ids": point3D_ids,
             **data,
         }
 
