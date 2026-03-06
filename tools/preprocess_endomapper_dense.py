@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
+import torch
 from tqdm import tqdm
 
 from gluefactory.datasets.endomapper_utils import (
@@ -17,10 +18,12 @@ from gluefactory.datasets.endomapper_utils import (
     read_images_txt,
     read_points3D_txt,
 )
+from gluefactory.geometry.depth import sample_depth
 
 from gluefactory.settings import DATA_PATH
 
 DEFAULT_ROOT = DATA_PATH / "endomapper_dense"
+MIN_SCALE_SAMPLES = 8
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -102,7 +105,72 @@ def _collect_point3d_arrays(points3d: Dict[int, object]) -> Tuple[np.ndarray, np
     return ids, coords
 
 
+def _load_dense_depth(depth_path: Path) -> np.ndarray:
+    with np.load(str(depth_path)) as depth_npz:
+        if "depth" in depth_npz:
+            depth = depth_npz["depth"].astype(np.float32, copy=False)
+        elif len(depth_npz.files) == 1:
+            depth = depth_npz[depth_npz.files[0]].astype(np.float32, copy=False)
+        else:
+            raise KeyError(f"Depth array not found in {depth_path}.")
+        if "mask" in depth_npz:
+            mask = depth_npz["mask"].astype(bool, copy=False)
+            if depth.shape != mask.shape:
+                raise ValueError(f"Depth/mask shape mismatch in {depth_path}.")
+            depth = np.where(mask, depth, 0.0).astype(np.float32, copy=False)
+    return depth
+
+
+def _compute_depth_scale_for_image(
+    image: object,
+    points3d: Dict[int, object],
+    pose_w2c: np.ndarray,
+    depth_path: Path,
+    min_samples: int = MIN_SCALE_SAMPLES,
+) -> Tuple[float, int]:
+    if not depth_path.exists():
+        return 1.0, 0
+
+    pids = image.point3D_ids.astype(np.int64, copy=False)
+    valid_pid = pids != -1
+    if not np.any(valid_pid):
+        return 1.0, 0
+
+    pids = pids[valid_pid]
+    xys = image.xys[valid_pid].astype(np.float32, copy=False)
+    present = np.array([int(pid) in points3d for pid in pids], dtype=bool)
+    if not np.any(present):
+        return 1.0, 0
+
+    pids = pids[present]
+    xys = xys[present]
+    xyz_world = np.stack([points3d[int(pid)].xyz for pid in pids], axis=0).astype(
+        np.float32, copy=False
+    )
+
+    depth = _load_dense_depth(depth_path)
+    d_t, valid_t = sample_depth(
+        torch.from_numpy(xys)[None],
+        torch.from_numpy(depth)[None],
+    )
+    d = d_t[0].cpu().numpy()
+    valid = valid_t[0].cpu().numpy().astype(bool)
+
+    z_colmap = (xyz_world @ pose_w2c[:3, :3].T)[:, 2] + pose_w2c[2, 3]
+    good = valid & np.isfinite(d) & (d > 0.0) & np.isfinite(z_colmap) & (z_colmap > 1e-6)
+    n_good = int(np.sum(good))
+    if n_good < min_samples:
+        return 1.0, n_good
+
+    ratios = z_colmap[good] / d[good]
+    scale = float(np.median(ratios))
+    if not np.isfinite(scale) or scale <= 0.0:
+        return 1.0, n_good
+    return scale, n_good
+
+
 def process_sequence(
+    root: Path,
     seq_dir: Path,
     map_id: str,
     image_subpath: str,
@@ -151,6 +219,43 @@ def process_sequence(
     tqdm.write(f"[map] {seq_dir.name} map {map_id}: computing overlap matrix")
     overlap_matrix = compute_overlap_matrix(point3d_ids_list)
     point3d_ids_all, point3d_coords_all = _collect_point3d_arrays(points3d)
+    depth_scale_per_image = np.ones((len(image_ids),), dtype=np.float32)
+    depth_scale_num_samples_per_image = np.zeros((len(image_ids),), dtype=np.int32)
+    valid_image_depth_per_image = np.zeros((len(image_ids),), dtype=bool)
+    tqdm.write(f"[map] {seq_dir.name} map {map_id}: computing depth scale per image")
+    for i, image_id in enumerate(
+        tqdm(
+            image_ids,
+            desc=f"{seq_dir.name} map {map_id} depth scale",
+            unit="img",
+            leave=False,
+        )
+    ):
+        image = images[image_id]
+        depth_path = (
+            root
+            / depth_subpath
+            / seq_dir.name
+            / str(map_id)
+            / f"{Path(image.name).stem}_ttr.npz"
+        )
+        image_path = root / image_paths[i]
+        if not image_path.exists() or not depth_path.exists():
+            continue
+        valid_image_depth_per_image[i] = True
+        scale, n_good = _compute_depth_scale_for_image(
+            image=image,
+            points3d=points3d,
+            pose_w2c=poses[i],
+            depth_path=depth_path,
+        )
+        depth_scale_per_image[i] = np.float32(scale)
+        depth_scale_num_samples_per_image[i] = np.int32(n_good)
+    valid_count = int(valid_image_depth_per_image.sum())
+    total_count = int(len(valid_image_depth_per_image))
+    tqdm.write(
+        f"[map] {seq_dir.name} map {map_id}: valid image+depth {valid_count}/{total_count}"
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{seq_dir.name}_map{map_id}.npz"
@@ -172,6 +277,9 @@ def process_sequence(
         point3D_coords=point3d_coords_all,
         image_paths=image_paths,
         depth_paths=depth_paths,
+        valid_image_depth_per_image=valid_image_depth_per_image,
+        depth_scale_per_image=depth_scale_per_image,
+        depth_scale_num_samples_per_image=depth_scale_num_samples_per_image,
     )
     return out_path
 
@@ -230,6 +338,7 @@ def main():
             continue
         try:
             out = process_sequence(
+                root,
                 seq_dir,
                 map_id,
                 args.image_subpath,
