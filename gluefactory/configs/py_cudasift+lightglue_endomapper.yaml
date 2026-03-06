@@ -1,0 +1,121 @@
+data:
+    name: endomapper_dense
+    data_dir: endomapper_dense
+    train_split: train_seqs.txt
+    train_num_per_scene: 300  #300
+    val_split: val_seqs.txt
+    val_num_per_scene: 10 
+    val_pairs: null
+    overfit_split: overfit.txt
+    overfit_pairs: null
+    overfit_num_per_scene: 10
+    min_overlap: 0.0
+    max_overlap: 0.99
+    num_overlap_bins: 5
+    read_depth: true
+    read_image: true
+    batch_size: 2 #32
+    num_workers: 0 #0 #14
+    load_features:
+        do: false  # enable this if you have cached predictions
+        path: exports/megadepth-undist-depth-r1024_pycolmap_SIFTGPU-nms3-fixed-k2048/{scene}.h5
+        padding_length: 2048
+        padding_fn: pad_local_features
+        data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales"]
+        
+
+model:
+    name: two_view_pipeline
+    extractor:
+        name: extractors.sift
+        backend: py_cudasift
+        max_num_keypoints: 2048
+        force_num_keypoints: true
+        nms_radius: 3
+        trainable: false
+        detection_threshold: 1.7     # 0.0066667 from COLMAP; scale by 255 for cudasift
+        rootsift: true
+        first_octave: -1            #Defualt for pycolmap; I think that for cudasift is the same as 0
+        num_octaves: 6              # Colmap: 4; Colon: 3; Imitation for Cudasift: 6
+        init_blur: 1.0              # Only used by py_cudasift; Colon: 2.0
+        filter_kpts_with_wrapper: false          # Only for py_cudasift. Truncate max kpts as Cudasift
+        filter_with_scale_weighting: true      # for all that has scores. Multiply scores by scales.
+        extractor_channel: grayscale            # Colon: green
+        filter_with_lowest_scale: false         # Default is false. Only for those who dont have scores, scale as filter proxy. 
+    matcher:
+        name: matchers.lightglue
+        filter_threshold: 0.1
+        flash: false
+        checkpointed: true
+        add_scale_ori: true
+        input_dim: 128
+        weights: outputs/training/sift+lg_pretrained/sift_lightglue.pth
+
+    ground_truth:
+        name:  matchers.sparse_dense_depth_matcher
+        use_gt_pos_for_plot: true
+        th_positive: 3
+        th_negative: 5
+        th_epi: null
+        save_fig_when_debug: true
+    allow_no_extract: true
+    run_gt_in_forward: true
+
+
+train:
+    seed: 0
+    epochs: 2
+    log_every_iter: 1
+    eval_every_iter: 1 #1000
+
+    # Write into tb gt figures
+    log_gt_pos_val_once: true
+    log_gt_pos_overfit_once: true
+    log_gt_pos_neg_ign_val_once: true
+    log_gt_pos_neg_ign_overfit_once: true
+
+    # Log into txt metrics for all val and overfit datasets
+    log_val_metrics: true
+    log_overfit_metrics: true
+    eval_overlap_bins:
+        - [0.0, 0.2]
+        - [0.2, 0.4]
+        - [0.4, 0.6]
+        - [0.6, 0.8]
+        - [0.8, 0.99]
+    eval_overlap_bins_include_overall: true
+    
+
+    lr: 1e-6
+    # lr_schedule:
+    #     start: 30
+    #     type: exp
+    #     on_epoch: true
+    #     exp_div_10: 10
+    dataset_callback_fn: sample_new_items
+    plot: [2, 'gluefactory.visualization.visualize_compare_lgoob.make_compare_lg_oob_figures', 4]
+    plot_ignored_predictions: true
+    save_eval_figs: false
+    keep_last_checkpoints: 2  # keep only the last X checkpoints
+    load_experiment: null         
+
+benchmarks:
+    megadepth1500:
+        data:
+            preprocessing:
+                side: long
+                resize: 1600
+        model:
+            extractor:
+                nms_radius: 0
+        eval:
+            estimator: opencv
+            ransac_th: 0.5
+    hpatches:
+        eval:
+            estimator: opencv
+            ransac_th: 0.5
+        model:
+            extractor:
+                max_num_keypoints: 1024
+                nms_radius: 0
