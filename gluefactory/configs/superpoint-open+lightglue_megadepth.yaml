@@ -60,8 +60,8 @@ benchmarks:
                 side: long
                 resize: 1600
         eval:
-            estimator: opencv
-            ransac_th: 0.5
+            estimator: poselib
+            ransac_th: 1
     hpatches:
         eval:
             estimator: opencv

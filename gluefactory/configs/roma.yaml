@@ -17,8 +17,8 @@ benchmarks:
                 output_hw: [1344, 1344]
                 sample_num_matches: 5000
         eval:
-            estimator: opencv
-            ransac_th: 0.5  # Use 1 for poselib
+            estimator: poselib
+            ransac_th: 1  # Use 1 for poselib
     scannet1500:
         model:
             matcher:

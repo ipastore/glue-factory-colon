@@ -17,3 +17,4 @@ pytest.xml
 log*
 ThirdParty/
 gluefactory/datasets/endomapper_seq_lists/*
+gluefactory/settings.py

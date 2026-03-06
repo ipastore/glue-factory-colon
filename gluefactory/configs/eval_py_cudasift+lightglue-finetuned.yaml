@@ -1,22 +1,21 @@
-checkpoint: outputs/training/long26_gt_pos_null_10_lg1e-03_lr5e-05_5bin/checkpoint_best.tar
-
+checkpoint: outputs/training/py_cudasift_finetune+lg_MD_continue_V2/checkpoint_best.tar
 model:
     name: two_view_pipeline
     extractor:
         name: extractors.sift
         backend: py_cudasift
-        max_num_keypoints: 12000
+        max_num_keypoints: 4096
         force_num_keypoints: False
         nms_radius: 0
         trainable: False
         detection_threshold: 0.4  # 1.7 0.4   
-        rootsift: false
+        rootsift: true
         first_octave: -1
-        num_octaves: 6          # 6  3
-        init_blur: 2.0          # 1 2.0
+        num_octaves: 4          # 6  3
+        init_blur: 1.0          # 1 2.0
         filter_kpts_with_wrapper: False
         filter_with_scale_weighting: True
-        extractor_channel: green
+        extractor_channel: grayscale
         sort_scales_low_to_large: False
 
 
@@ -25,7 +24,7 @@ model:
       features: sift
       depth_confidence: -1
       width_confidence: -1
-      filter_threshold: 0.001
+      filter_threshold: 0.1
       input_dim: 128      # if features == sift, overwwritten to 128 
       add_scale_ori: true   # if features == sift, overwwritten to true
 
@@ -36,8 +35,8 @@ benchmarks:
           side: long
           resize: 1600
       eval:
-        estimator: opencv
-        ransac_th: 0.5
+        estimator: poselib
+        ransac_th: 1.0
     hpatches:
       eval:
         estimator: opencv

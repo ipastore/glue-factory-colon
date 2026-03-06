@@ -2,9 +2,9 @@ model:
     name: two_view_pipeline
     extractor:
       name: extractors.sift
-      backend: pycolmap_cuda
+      backend: py_cudasift
       max_num_keypoints: 4096
-      detection_threshold: 0.0066667
+      detection_threshold: 0.01
       rootsift: true
       nms_radius: 0
       first_octave: -1
@@ -18,13 +18,13 @@ model:
       filter_with_lowest_scale: false     # Default is false. Only for those who dont have scores, scale as filter proxy.  
       random_topk: False # if True, pick random topk even when scores are available 
 
-      
     matcher:
       name: matchers.lightglue_pretrained
       features: sift
       depth_confidence: -1
       width_confidence: -1
-      filter_threshold: -1
+      filter_threshold: 0.1
+
 benchmarks:
     megadepth1500:
       data:
