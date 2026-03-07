@@ -45,6 +45,7 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
     pred_m1 = data["matches1"]
     gt_m0 = gt["matches0"]
     gt_m1 = gt["matches1"]
+    #TODO: change mask for valid_depth to generalize better or be semantically clear
     pad_mask0 = data["keypoint_scores0"]>0
     pad_mask1 = data["keypoint_scores1"]>0
     overlap = data["overlap_0to1"]
@@ -207,30 +208,22 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
         if neg_th is not None:
             title_line0_parts.append(f"neg_th: {neg_th:g}")
         title_line0 = " | ".join(title_line0_parts)
-        title_line1 = " | ".join(
-            [
-                f"IMG0-> "    
-                f"KP: {pad_mask0[i].sum()}/{kp0_pos_mask.sum()}/{kp0_neg_mask.sum()}/{kp0_ign_mask.sum()}",
-                f"KP_3D: {data['valid_3D_mask0'][i].sum()}", 
-                # f"TP: {num_true_positives}",
-                # f"FP: {fp_regular}",
-                # f"FP ign: {fp_ignored}",
-                # f"FN0: {num_false_negatives0}",
-                # f"TN0: {num_true_negatives0}",
-            ]
-        )
-        title_line2 = " | ".join(
-            [
-                f"IMG1-> " 
-                f"KP: {pad_mask1[i].sum()}/{kp1_pos_mask.sum()}/{kp1_neg_mask.sum()}/{kp1_ign_mask.sum()}",
-                f"KP_3D: {data['valid_3D_mask1'][i].sum()}",
-                # f"TP: {num_true_positives}",
-                # f"FP: {fp_regular}",
-                # f"FP ign: {fp_ignored}",
-                # f"FN1: {num_false_negatives1}",
-                # f"TN1: {num_true_negatives1}",
-            ]
-        )
+        title_line1_parts = [
+            f"IMG0-> "
+            f"KP: {pad_mask0[i].sum()}/{kp0_pos_mask.sum()}/{kp0_neg_mask.sum()}/{kp0_ign_mask.sum()}",
+        ]
+        valid_3d_mask0 = data.get("valid_3D_mask0")
+        if valid_3d_mask0 is not None:
+            title_line1_parts.append(f"KP_3D: {valid_3d_mask0[i].sum()}")
+        title_line1 = " | ".join(title_line1_parts)
+        title_line2_parts = [
+            f"IMG1-> "
+            f"KP: {pad_mask1[i].sum()}/{kp1_pos_mask.sum()}/{kp1_neg_mask.sum()}/{kp1_ign_mask.sum()}",
+        ]
+        valid_3d_mask1 = data.get("valid_3D_mask1")
+        if valid_3d_mask1 is not None:
+            title_line2_parts.append(f"KP_3D: {valid_3d_mask1[i].sum()}")
+        title_line2 = " | ".join(title_line2_parts)
         fig.suptitle(
             f"{title_line0}\n{title_line1}\n{title_line2}", fontsize=8, y=0.99, va="bottom"
         )

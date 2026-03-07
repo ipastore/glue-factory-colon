@@ -110,7 +110,7 @@ class SparseDenseDepthMatcher(BaseModel):
                 "valid_depth_keypoints1"
 
         ]
-        kw = {k: data[k] for k in keys}
+        kw = {k: data.get(k) for k in keys}
         gt = gt_matches_from_pose_sparse_dense_map(
             data["keypoints0"],
             data["keypoints1"],

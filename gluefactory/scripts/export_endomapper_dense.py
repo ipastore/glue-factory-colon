@@ -78,7 +78,8 @@ configs = {
         },
     },
     "py-cudasift": {
-        "name": f"py-cudasift-k{n_kpts}",
+        # "name": f"py-cudasift-k{n_kpts}",
+        "name": f"py-cudasift-k{n_kpts}_no_scale",
         "keys": ["keypoints", "descriptors", "keypoint_scores", "oris", "scales"],
         "gray": True,
         "conf": {
@@ -93,6 +94,10 @@ configs = {
             "num_octaves": 4,
             "init_blur": 1.0,
             "extractor_channel": "grayscale",
+            "filter_kpts_with_wrapper": False ,          # Only for py_cudasift. Truncate max kpts as Cudasift
+            "filter_with_scale_weighting": False ,     # for all that has scores. Multiply scores by scales.
+            "filter_with_lowest_scale": False ,     # Default is false. Only for those who dont have scores, scale as filter proxy.  
+            "random_topk": False # if True, pick random topk even when scores are available 
         },
     },
     "keynet-affnet-hardnet": {
