@@ -1,8 +1,5 @@
 import argparse
 import logging
-import os
-import signal
-import zipfile
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict
@@ -135,6 +132,7 @@ class _PairDataset(torch.utils.data.Dataset):
         self.image_names: Dict[str, np.ndarray] = {}
         self.image_sizes: Dict[str, np.ndarray] = {}
         self.camera_ids: Dict[str, np.ndarray] = {}
+        self.camera_indices: Dict[str, np.ndarray] = {}
         self.poses: Dict[str, np.ndarray] = {}
         self.intrinsics: Dict[str, np.ndarray] = {}
         self.valid: Dict[str, np.ndarray] = {}
@@ -153,6 +151,7 @@ class _PairDataset(torch.utils.data.Dataset):
                     self.image_names[seq_map] = info["image_names"]
                     self.image_sizes[seq_map] = info["image_sizes"]
                     self.camera_ids[seq_map] = info["camera_ids"]
+                    self.camera_indices[seq_map] = info["camera_indices"]
                     self.poses[seq_map] = info["poses"]
                     self.intrinsics[seq_map] = info["intrinsics"]
                     self.map_id[seq_map] = str(np.asarray(info["map_id"]).item())
@@ -369,74 +368,9 @@ class _PairDataset(torch.utils.data.Dataset):
             image_name = image_names[idx]
         else:
             idx = np.where(image_names == image_name)[0][0]
-        path = self.root / self.conf.info_dir / f"{seq_map}.npz"
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=True)
-
-        # camera = self._load_camera(seq_map, idx)
-
-        try:
-            info_npz = np.load(str(path), allow_pickle=True)
-        except Exception:
-            logger.error(
-                "Failed to open NPZ: path=%s seq_map=%s image_name=%s idx=%d",
-                path,
-                seq_map,
-                image_name,
-                idx,
-                exc_info=True,
-            )
-            try:
-                with zipfile.ZipFile(path) as zf:
-                    bad_member = zf.testzip()
-                if bad_member:
-                    logger.error("zipfile.testzip() bad member: %s", bad_member)
-                else:
-                    logger.error("zipfile.testzip() did not find bad members.")
-            except Exception as zip_error:
-                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
-            worker_info = torch.utils.data.get_worker_info()
-            if worker_info is not None:
-                try:
-                    os.killpg(os.getpgrp(), signal.SIGINT)
-                except Exception as kill_error:
-                    logger.error("Failed to signal process group: %s", kill_error)
-                os._exit(1)
-            raise SystemExit(1)
-
-        try:
-            with info_npz:
-                camera = Camera.from_npz(
-                    info_npz["cameras"][
-                        int(np.asarray(info_npz["camera_indices"][idx]).item())
-                    ]
-                ).float()
-        except Exception:
-            logger.error(
-                "Failed to read NPZ content: path=%s seq_map=%s image_name=%s idx=%d",
-                path,
-                seq_map,
-                image_name,
-                idx,
-                exc_info=True,
-            )
-            try:
-                with zipfile.ZipFile(path) as zf:
-                    bad_member = zf.testzip()
-                if bad_member:
-                    logger.error("zipfile.testzip() bad member: %s", bad_member)
-                else:
-                    logger.error("zipfile.testzip() did not find bad members.")
-            except Exception as zip_error:
-                logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
-            worker_info = torch.utils.data.get_worker_info()
-            if worker_info is not None:
-                try:
-                    os.killpg(os.getpgrp(), signal.SIGINT)
-                except Exception as kill_error:
-                    logger.error("Failed to signal process group: %s", kill_error)
-                os._exit(1)
-            raise SystemExit(1)
+        camera = self._load_camera(seq_map, idx)
 
         if self.conf.read_image:
             img_path = self.root / str(self.images[seq_map][idx])
@@ -501,9 +435,7 @@ class _PairDataset(torch.utils.data.Dataset):
 
         data = self.preprocessor(img)
         if depth is not None:
-            data["depth"] = self.preprocessor(depth, interpolation="nearest")["image"][
-                0
-            ]
+            depth = self.preprocessor(depth, interpolation="nearest")["image"][0]
         camera = camera.scale(data["scales"])
 
         data = {
