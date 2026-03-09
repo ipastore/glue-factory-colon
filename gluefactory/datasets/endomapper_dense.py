@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict
 
 
+import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -36,6 +37,7 @@ class EndomapperDense(BaseDataset):
         # paths
         "data_dir": "endomapper_dense/",
         "depth_subpath": "depth_undistorted/",
+        "specular_subpath": "specular_undistorted/",
         "image_subpath": "Undistorted_SfM/",
         "info_dir": "scene_info/",
         # Training
@@ -62,6 +64,7 @@ class EndomapperDense(BaseDataset):
         "triplet_enforce_overlap": False,
         # image options
         "read_depth": True,
+        "read_specular_mask": True,
         "read_image": True,
         "grayscale": False,
         "preprocessing": ImagePreprocessor.default_conf,
@@ -125,6 +128,7 @@ class _PairDataset(torch.utils.data.Dataset):
 
         self.images = {}
         self.depths = {}
+        self.specular_masks = {}
         self.cameras = {}
 
         self.seq: Dict[str, str] = {}
@@ -146,6 +150,7 @@ class _PairDataset(torch.utils.data.Dataset):
                 with np.load(str(path), allow_pickle=True) as info:
                     self.images[seq_map] = info["image_paths"]
                     self.depths[seq_map] = info["depth_paths"]
+                    self.specular_masks[seq_map] = info["specular_mask_paths"]
                     self.cameras[seq_map] = info["cameras"]
 
                     self.image_names[seq_map] = info["image_names"]
@@ -210,6 +215,16 @@ class _PairDataset(torch.utils.data.Dataset):
                 count=n,
             )
             valid &= depth_exists
+        if self.conf.read_specular_mask:
+            specular_exists = np.fromiter(
+                (
+                    (self.root / str(path)).exists()
+                    for path in self.specular_masks[seq_map]
+                ),
+                dtype=bool,
+                count=n,
+            )
+            valid &= specular_exists
         return valid
 
     @staticmethod
@@ -418,6 +433,39 @@ class _PairDataset(torch.utils.data.Dataset):
             assert depth.shape[-2:] == img.shape[-2:]
         else:
             depth = None
+        specular_mask = None
+        if self.conf.read_specular_mask:
+            specular_path = self.root / str(self.specular_masks[seq_map][idx])
+            try:
+                with np.load(str(specular_path)) as spec_data:
+                    if "mask_packbits" in spec_data and "mask_shape" in spec_data:
+                        packed = spec_data["mask_packbits"]
+                        h, w = spec_data["mask_shape"].astype(np.int64).tolist()
+                        flat = np.unpackbits(packed, count=int(h * w))
+                        specular_mask_np = flat.reshape((h, w)).astype(bool, copy=False)
+                    else:
+                        raise KeyError(f"Specular mask array not found in {specular_path}.")
+            except Exception as e:
+                raise OSError(
+                    f"Failed reading specular mask file: {specular_path}"
+                ) from e
+
+            specular_mask = torch.from_numpy(specular_mask_np)[None]
+            if tuple(specular_mask.shape[-2:]) == raw_image_shape:
+                specular_mask, spec_left_top = self.preprocessor.crop_endomapper_dense(
+                    specular_mask
+                )
+                if spec_left_top != crop_left_top:
+                    raise ValueError(
+                        f"Unexpected crop offset for specular mask {specular_path}: "
+                        f"{spec_left_top} vs {crop_left_top}."
+                    )
+            elif tuple(specular_mask.shape[-2:]) != tuple(img.shape[-2:]):
+                raise ValueError(
+                    f"Specular mask shape mismatch for {specular_path}: "
+                    f"{specular_mask.shape[-2:]} vs image {img.shape[-2:]}."
+                )
+            assert specular_mask.shape[-2:] == img.shape[-2:]
 
         #Not tested
         do_rotate = self.conf.p_rotate > 0.0 and self.split == "train"
@@ -429,6 +477,10 @@ class _PairDataset(torch.utils.data.Dataset):
                 img = torch.rot90(img, k=-k, dims=[1, 2])
                 if self.conf.read_depth:
                     depth = torch.rot90(depth, k=-k, dims=[1, 2]).clone()
+                if specular_mask is not None:
+                    specular_mask = torch.rot90(
+                        specular_mask.float(), k=-k, dims=[1, 2]
+                    ) > 0.5
                 K = rotate_intrinsics(K, img.shape, k + 2)
                 camera = self._rotate_camera(camera, K, img.shape[-2:])
                 T = rotate_pose_inplane(T, k + 2)
@@ -436,6 +488,13 @@ class _PairDataset(torch.utils.data.Dataset):
         data = self.preprocessor(img)
         if depth is not None:
             depth = self.preprocessor(depth, interpolation="nearest")["image"][0]
+        if specular_mask is not None:
+            specular_mask = (
+                self.preprocessor(
+                    specular_mask.float(), interpolation="nearest"
+                )["image"][0]
+                > 0.5
+            )
         camera = camera.scale(data["scales"])
 
         data = {
@@ -444,6 +503,7 @@ class _PairDataset(torch.utils.data.Dataset):
             "T_w2cam": Pose.from_4x4mat(T),
             "depth": depth,
             "camera": camera,
+            "specular_mask": specular_mask,
             **data,
         }
 

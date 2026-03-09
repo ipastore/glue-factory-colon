@@ -5,11 +5,13 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import cv2
 import numpy as np
 import torch
 from tqdm import tqdm
 
 from gluefactory.datasets.endomapper_utils import (
+    compute_specular_mask,
     compute_overlap_matrix,
     extract_cameras_npz,
     extract_intrinsics,
@@ -53,6 +55,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="depth_undistorted",
         help="Root-relative depth subpath saved into scene_info paths.",
+    )
+    parser.add_argument(
+        "--specular-subpath",
+        type=str,
+        default="specular_undistorted",
+        help="Root-relative specular mask subpath saved into scene_info paths.",
     )
     parser.add_argument(
         "--seq-maps",
@@ -175,6 +183,7 @@ def process_sequence(
     map_id: str,
     image_subpath: str,
     depth_subpath: str,
+    specular_subpath: str,
     out_dir: Path,
 ) -> Path:
     tqdm.write(f"[map] {seq_dir.name} map {map_id}: reading COLMAP")
@@ -216,6 +225,18 @@ def process_sequence(
         ],
         dtype=object,
     )
+    specular_mask_paths = np.array(
+        [
+            str(
+                Path(specular_subpath)
+                / seq_dir.name
+                / str(map_id)
+                / f"{Path(image_name).stem}_spec.npz"
+            )
+            for image_name in image_names
+        ],
+        dtype=object,
+    )
     tqdm.write(f"[map] {seq_dir.name} map {map_id}: computing overlap matrix")
     overlap_matrix = compute_overlap_matrix(point3d_ids_list)
     point3d_ids_all, point3d_coords_all = _collect_point3d_arrays(points3d)
@@ -251,6 +272,19 @@ def process_sequence(
         )
         depth_scale_per_image[i] = np.float32(scale)
         depth_scale_num_samples_per_image[i] = np.int32(n_good)
+
+        specular_mask_path = root / specular_mask_paths[i]
+        if not specular_mask_path.exists():
+            specular_mask_path.parent.mkdir(parents=True, exist_ok=True)
+            image_gray = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+            if image_gray is not None:
+                spec_mask_bool = compute_specular_mask(image_gray)
+                spec_mask_packed = np.packbits(spec_mask_bool.reshape(-1))
+                np.savez_compressed(
+                    specular_mask_path,
+                    mask_packbits=spec_mask_packed,
+                    mask_shape=np.array(spec_mask_bool.shape, dtype=np.int32),
+                )
     valid_count = int(valid_image_depth_per_image.sum())
     total_count = int(len(valid_image_depth_per_image))
     tqdm.write(
@@ -277,6 +311,7 @@ def process_sequence(
         point3D_coords=point3d_coords_all,
         image_paths=image_paths,
         depth_paths=depth_paths,
+        specular_mask_paths=specular_mask_paths,
         valid_image_depth_per_image=valid_image_depth_per_image,
         depth_scale_per_image=depth_scale_per_image,
         depth_scale_num_samples_per_image=depth_scale_num_samples_per_image,
@@ -343,6 +378,7 @@ def main():
                 map_id,
                 args.image_subpath,
                 args.depth_subpath,
+                args.specular_subpath,
                 out_dir,
             )
             print(f"[ok] {seq_dir.name} map {map_id} -> {out}")

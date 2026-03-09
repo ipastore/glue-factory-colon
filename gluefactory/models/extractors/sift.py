@@ -103,7 +103,8 @@ class SIFT(BaseModel):
         "filter_with_lowest_scale": False,  # keep smallest scales when no scores
         "force_num_keypoints": False,
         "random_topk": False,  # if True, pick random topk even when scores are available
-        "mask_out_padded_kpts": False 
+        "mask_out_padded_kpts": False,
+        "filter_specular_keypoints": True,
     }
 
     required_data_keys = ["image"]
@@ -195,7 +196,7 @@ class SIFT(BaseModel):
                 f"Unknown backend: {backend} not in " f"{{{','.join(backends)}}}."
             )
 
-    def extract_single_image(self, image: torch.Tensor):
+    def extract_single_image(self, image: torch.Tensor, specular_mask: torch.Tensor = None):
         image_np = np.clip(image.cpu().numpy().squeeze(0), 0.0, 1.0)
 
         if self.conf.backend.startswith("pycolmap"):
@@ -254,6 +255,36 @@ class SIFT(BaseModel):
             logger.debug(
                 "SIFT [%s]: %d keypoints BEFORE NMS (radius=%d)",
                 self.conf.backend, len(pred["keypoints"]), self.conf.nms_radius,
+            )
+        if self.conf.filter_specular_keypoints and specular_mask is not None:
+            num_before_spec = len(pred["keypoints"])
+            spec_mask_np = specular_mask.cpu().numpy()
+            if spec_mask_np.ndim == 3:
+                spec_mask_np = spec_mask_np.squeeze(0)
+            spec_mask_np = spec_mask_np.astype(bool, copy=False)
+            h, w = spec_mask_np.shape[-2:]
+            kxy = pred["keypoints"] - 0.5
+            x0 = np.floor(kxy[:, 0]).astype(np.int64)
+            x1 = np.ceil(kxy[:, 0]).astype(np.int64)
+            y0 = np.floor(kxy[:, 1]).astype(np.int64)
+            y1 = np.ceil(kxy[:, 1]).astype(np.int64)
+            inside = (
+                (x0 >= 0) & (x1 < w) &
+                (y0 >= 0) & (y1 < h)
+            )
+            keep = np.zeros(len(kxy), dtype=bool)
+            v00 = spec_mask_np[y0[inside], x0[inside]]
+            v01 = spec_mask_np[y0[inside], x1[inside]]
+            v10 = spec_mask_np[y1[inside], x0[inside]]
+            v11 = spec_mask_np[y1[inside], x1[inside]]
+            keep[inside] = v00 & v01 & v10 & v11
+            pred = {k: v[keep] for k, v in pred.items()}
+            num_after_spec = len(pred["keypoints"])
+            logger.debug(
+                "SIFT [%s]: specular filtered out %d / %d keypoints",
+                self.conf.backend,
+                num_before_spec - num_after_spec,
+                num_before_spec,
             )
         if self.conf.nms_radius is not None:
             keep = filter_dog_point(
@@ -353,12 +384,18 @@ class SIFT(BaseModel):
         pred = []
         for k in range(len(image)):
             img = image[k]
+            specular_mask = data.get("specular_mask")
+            specular_mask_k = None
             if "image_size" in data.keys():
                 # avoid extracting points in padded areas
                 w, h = data["image_size"][k]
                 w, h = int(w), int(h)
                 img = img[:, :h, :w]
-            p = self.extract_single_image(img)
+                if specular_mask is not None:
+                    specular_mask_k = specular_mask[k][..., :h, :w]
+            elif specular_mask is not None:
+                specular_mask_k = specular_mask[k]
+            p = self.extract_single_image(img, specular_mask=specular_mask_k)
             pred.append(p)
         pred = {k: torch.stack([p[k] for p in pred], 0).to(device) for k in pred[0]}
         if self.conf.rootsift:

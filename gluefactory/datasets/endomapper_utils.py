@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Tuple
 
 import numpy as np
+import cv2
 
 FEATURE_DIM = 128
 MISSING_DEPTH_VALUE = -1.0
@@ -332,6 +333,38 @@ def compute_overlap_matrix(
     return overlap
 
 
+
+def compute_specular_mask(
+    image: np.ndarray, threshold=0.70, kernel_size=3, iterations=5
+) -> np.ndarray:
+    """Compute a specular mask from an image.
+
+    This generates a binary mask where specularities are 0 (masked out) and
+    non-specular pixels are 1 (kept). The mask is eroded to remove small
+    noisy regions.
+
+    Args:
+        image: Grayscale image of shape (H, W), uint8 in [0, 255].
+        threshold: Pixel threshold to distinguish specular vs. non-specular.
+        kernel_size: Erosion kernel size for mask cleanup.
+        iterations: Number of erosion iterations.
+
+    Returns:
+        A bool mask array of shape (H, W):
+            True = non-specular (keep), False = specular (mask out).
+    """
+    if image.ndim != 2:
+        raise ValueError("compute_specular_mask expects a grayscale image (H, W).")
+    img = image.astype(np.uint8, copy=False)
+    thr = int(round(float(threshold) * 255.0))
+    specular_mask_u8 = (img < thr).astype(np.uint8)
+
+    # Erode
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    specular_mask_u8 = cv2.erode(specular_mask_u8, kernel, iterations=iterations)
+    return specular_mask_u8.astype(bool, copy=False)
+
+
 __all__ = [
     "ColmapCamera",
     "ColmapImage",
@@ -348,4 +381,5 @@ __all__ = [
     "read_depths_txt",
     "build_feature_depth_arrays",
     "compute_overlap_matrix",
+    "compute_specular_mask",
 ]

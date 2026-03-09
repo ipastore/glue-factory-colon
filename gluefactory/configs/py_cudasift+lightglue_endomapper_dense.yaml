@@ -14,14 +14,14 @@ data:
     num_overlap_bins: 5
     read_depth: true
     read_image: true
-    batch_size: 32 #32
-    num_workers: 8 #0 #14
+    batch_size: 4 #32
+    num_workers: 0 #0 #14
     load_features:
         do: true
-        path: exports/endomapper-dense-py-cudasift-k2048/{scene}.h5
+        path: exports/endomapper-dense-py-cudasift-k2048_no_scale/{seq_map}.h5
         padding_length: 2048
         padding_fn: pad_local_features
-        data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales"]
+        data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales", "depth_keypoints", "valid_depth_keypoints"] #*
         
 
 model:
@@ -45,7 +45,7 @@ model:
         th_epi: null
         save_fig_when_debug: true
     allow_no_extract: true
-    run_gt_in_forward: true
+    run_gt_in_forward: false
 
 
 train:
