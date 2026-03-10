@@ -77,6 +77,7 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
         "image_dir": "???",
         "depth_dir": None,  # optional
         "crop_endomapper_dense": False,
+        "depth_scale_scene_info_dir": None,
         "views": "???",
         "extra_data": None,  # text file with extra data
         "extra_keys": [],
@@ -109,6 +110,7 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
         # read posed views, check if images exist
         self.views = {}
         self.extra_data = {}
+        self.depth_scales = {}
 
         self.items = []
         for scene in self.scenes:
@@ -148,6 +150,27 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
                 view_groups = view_group_path.read_text().rstrip("\n").split("\n")
                 self.items += [[scene] + p.split(" ") for p in view_groups]
 
+        if conf.depth_scale_scene_info_dir:
+            scene_info_dir = DATA_PATH / conf.depth_scale_scene_info_dir
+            seq_maps = {
+                str(name).split("/", 1)[0]
+                for scene_views in self.views.values()
+                for name in scene_views.keys()
+            }
+            for seq_map in sorted(seq_maps):
+                scene_info_path = scene_info_dir / f"{seq_map}.npz"
+                with np.load(str(scene_info_path), allow_pickle=True) as info:
+                    image_names = [str(x) for x in info["image_names"].tolist()]
+                    scales = info["depth_scale_per_image"].astype(
+                        np.float32, copy=False
+                    )
+                self.depth_scales.update(
+                    {
+                        f"{seq_map}/{image_name}": float(scales[i])
+                        for i, image_name in enumerate(image_names)
+                    }
+                )
+
         self.preprocessor = ImagePreprocessor(conf.preprocessing)
 
     def get_dataset(self, split):
@@ -169,6 +192,8 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
             depth = load_depth(
                 self.get_depth_path(scene, name), dformat=self.conf.depth_format
             )
+            if self.conf.depth_scale_scene_info_dir:
+                depth = depth * float(self.depth_scales[name])
             if self.conf.crop_endomapper_dense:
                 if tuple(depth.shape[-2:]) == raw_image_shape:
                     depth, _ = self.preprocessor.crop_endomapper_dense(depth)
