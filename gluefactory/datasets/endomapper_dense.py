@@ -261,7 +261,6 @@ class _PairDataset(torch.utils.data.Dataset):
             assert self.conf.views == 2
             pairs_path = seq_lists_path / self.conf[split + "_pairs"]
             for line in pairs_path.read_text().strip().splitlines():
-                #TODO adapt to new val_pairs.txt. Adapted from endomapper.py
                 seq = line.split("/")[0]
                 im0_name = str(line.split("/")[1].split("_")[1].strip(".png"))
                 im1_name = str(line.split("/")[1].split("_")[-1].strip(".png"))
@@ -378,11 +377,7 @@ class _PairDataset(torch.utils.data.Dataset):
 
     def _read_view(self, seq_map, image_name):
         image_names = self.image_names[seq_map]
-        if isinstance(image_name, (int, np.integer)):
-            idx = int(image_name)
-            image_name = image_names[idx]
-        else:
-            idx = np.where(image_names == image_name)[0][0]
+        idx = np.where(image_names == image_name)[0][0]
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=True)
         camera = self._load_camera(seq_map, idx)
@@ -536,11 +531,11 @@ class _PairDataset(torch.utils.data.Dataset):
     def getitem(self, idx):
         if self.conf.views == 2:
             if isinstance(idx, list):
-                scene, idx0, idx1, overlap = idx
+                seq_map, idx0, idx1, overlap = idx
             else:
-                scene, idx0, idx1, overlap = self.items[idx]
-            data0 = self._read_view(scene, idx0)
-            data1 = self._read_view(scene, idx1)
+                seq_map, idx0, idx1, overlap = self.items[idx]
+            data0 = self._read_view(seq_map, idx0)
+            data1 = self._read_view(seq_map, idx1)
             data = {
                 "view0": data0,
                 "view1": data1,
@@ -548,12 +543,11 @@ class _PairDataset(torch.utils.data.Dataset):
             data["T_0to1"] = data1["T_w2cam"] @ data0["T_w2cam"].inv()
             data["T_1to0"] = data0["T_w2cam"] @ data1["T_w2cam"].inv()
             data["overlap_0to1"] = overlap
-            data["name"] = f"{scene}/{data0['name']}_{data1['name']}"
+            data["names"] = f"{seq_map}/{data0['name']}_{data1['name']}"
         else:
             assert self.conf.views == 1
-            scene, idx0 = self.items[idx]
-            data = self._read_view(scene, idx0)
-        data["scene"] = scene
+            seq_map, idx0 = self.items[idx]
+            data = self._read_view(seq_map, idx0)
         data["idx"] = idx
         return data
 

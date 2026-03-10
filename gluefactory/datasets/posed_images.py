@@ -58,6 +58,15 @@ def load_depth(depth_path, dformat):
         with h5py.File(str(depth_path), "r") as f:
             depth = f["/depth"].__array__().astype(np.float32, copy=False)
         return torch.Tensor(depth)
+    elif dformat == "npz":
+        with np.load(str(depth_path)) as data:
+            depth = data["depth"].astype(np.float32, copy=False)
+            if "mask" in data:
+                mask = data["mask"].astype(bool, copy=False)
+                if depth.shape != mask.shape:
+                    raise ValueError(f"Depth/mask shape mismatch in {depth_path}")
+                depth = np.where(mask, depth, 0.0).astype(np.float32, copy=False)
+        return torch.Tensor(depth)
     else:
         raise ValueError(dformat)
 
@@ -67,6 +76,7 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
         "root": "???",
         "image_dir": "???",
         "depth_dir": None,  # optional
+        "crop_endomapper_dense": False,
         "views": "???",
         "extra_data": None,  # text file with extra data
         "extra_keys": [],
@@ -146,6 +156,10 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
     def _read_view(self, scene, name):
         pose, camera = parse_pose_camera(self.views[scene][name])
         img = load_image(self.get_image_path(scene, name))
+        raw_image_shape = tuple(img.shape[-2:])
+        if self.conf.crop_endomapper_dense:
+            img, crop_left_top = self.preprocessor.crop_endomapper_dense(img)
+            camera = camera.crop(crop_left_top, (img.shape[-1], img.shape[-2]))
         data = self.preprocessor(img)
         data["T_w2cam"] = pose
         data["camera"] = camera.scale(data["scales"])
@@ -155,6 +169,14 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
             depth = load_depth(
                 self.get_depth_path(scene, name), dformat=self.conf.depth_format
             )
+            if self.conf.crop_endomapper_dense:
+                if tuple(depth.shape[-2:]) == raw_image_shape:
+                    depth, _ = self.preprocessor.crop_endomapper_dense(depth)
+                elif tuple(depth.shape[-2:]) != tuple(img.shape[-2:]):
+                    raise ValueError(
+                        f"Depth shape mismatch for {self.get_depth_path(scene, name)}: "
+                        f"{tuple(depth.shape[-2:])} vs image {tuple(img.shape[-2:])}."
+                    )
             data["depth"] = self.preprocessor(
                 depth,
                 interpolation="nearest",

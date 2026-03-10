@@ -57,8 +57,8 @@ class MegaDepth1500Pipeline(EvalPipeline):
     export_keys = [
         "keypoints0",
         "keypoints1",
-        # "keypoint_scores0",
-        # "keypoint_scores1",
+        "keypoint_scores0",
+        "keypoint_scores1",
         "matches0",
         "matches1",
         "matching_scores0",
