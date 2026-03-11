@@ -17,6 +17,7 @@ ARG CUDASIFT_CUDA_ARCHS=70
 ARG CUDASIFT_DIR=/opt/CudaSift-py-wrapper
 ARG USERNAME=dev
 ARG USER_UID=1000
+ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu114
 
 ENV CONDA_DIR=${CONDA_DIR} \
     CONDA_ENV=${CONDA_ENV} \
@@ -56,18 +57,23 @@ SHELL ["/bin/bash", "-lc"]
 RUN conda create -y -n "${CONDA_ENV}" python=${PYTHON_VERSION} pip && \
     conda clean -afy
 
-# Install PyTorch, CUDA toolkit, CUDA-enabled Pycolmap, and pybind11 from conda-forge.
+# Install CUDA-enabled Pycolmap and pybind11 from conda-forge.
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
-    conda install -y --strict-channel-priority -c conda-forge \
-        cudatoolkit=${CUDATOOLKIT_VERSION} \
-        nccl=2.14.3 \
-        pytorch=${PYTORCH_VERSION} \
-        torchvision=${TORCHVISION_VERSION} \
+    conda install -y -c conda-forge \
         pybind11 \
-        'pycolmap>=0.4.0' && \
+        ncurses \
+        'pycolmap==0.4.0' && \
     conda clean -afy
 
+# Install PyTorch and torchvision via pip to use system CUDA 11.8.
+# This avoids conda/pip conflicts by keeping PyTorch separate from conda-managed packages.
+RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
+    conda activate "${CONDA_ENV}" && \
+    python -m pip install --no-cache-dir \
+        torch==${PYTORCH_VERSION} \
+        torchvision==${TORCHVISION_VERSION} \
+        --index-url ${PYTORCH_INDEX_URL}
 # Ensure pycolmap exposes CUDA support at runtime.
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
