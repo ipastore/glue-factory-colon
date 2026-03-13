@@ -14,6 +14,7 @@ import torch
 import torch.nn as nn
 
 from ..base_model import BaseModel
+from .utils import filter_keypoints_by_specular_mask
 from ..utils.misc import pad_and_stack
 
 
@@ -87,6 +88,7 @@ class SuperPoint(BaseModel):
         "channels": [64, 64, 128, 128, 256],
         "dense_outputs": None,
         "weights": None,  # local path of pretrained weights
+        "filter_specular_keypoints": True,
     }
 
     checkpoint_url = "https://github.com/rpautrat/SuperPoint/raw/master/weights/superpoint_v6_from_tf.pth"  # noqa: E501
@@ -169,6 +171,17 @@ class SuperPoint(BaseModel):
             else:
                 k = keypoints_all
                 s = scores_all
+            if self.conf.filter_specular_keypoints and "specular_mask" in data:
+                image_size = data.get("image_size")
+                if image_size is not None:
+                    image_size = image_size[i]
+                k, s = filter_keypoints_by_specular_mask(
+                    k,
+                    data["specular_mask"][i],
+                    s,
+                    image_size=image_size,
+                    keypoint_offset=0.0,
+                )
             if self.conf.max_num_keypoints is not None:
                 k, s = select_top_k_keypoints(k, s, self.conf.max_num_keypoints)
 

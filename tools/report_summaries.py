@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate MegaDepth eval summaries into a single table."""
+"""Aggregate eval summaries into a single table."""
 
 import argparse
 import csv
@@ -8,44 +8,70 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_ROOT = Path("outputs/results/megadepth1500")
-DEFAULT_COLUMNS = [
-    "experiment",
-    "num_total_pairs",
-    "mepi_prec@1e-4",
-    "mepi_prec@5e-4",
-    "mepi_prec@1e-3",
-    "valid_pairs_epi",
-    "mnum_matches",
-    "mnum_keypoints",
-    "mreproj_prec@1px",
-    "mreproj_prec@3px",
-    "mreproj_prec@5px",
-    "valid_pairs_reproj",
-    "mcovisible",
-    "mcovisible_percent",
-    "mgt_match_recall@3px",
-    "mgt_match_precision@3px",
-    "rel_pose_error@5°",
-    "rel_pose_error@10°",
-    "rel_pose_error@20°",
-    "rel_pose_error_mAA",
-    "mrel_pose_error",
-    "valid_pairs_pose",
-    "mransac_inl",
-    "mransac_inl%",
-]
+DEFAULT_BENCHMARK = "megadepth1500"
+DEFAULT_COLUMNS = {
+    "megadepth1500": [
+        "experiment",
+        "num_total_pairs",
+        "mepi_prec@1e-4",
+        "mepi_prec@5e-4",
+        "mepi_prec@1e-3",
+        "valid_pairs_epi",
+        "mnum_matches",
+        "mnum_keypoints",
+        "mreproj_prec@1px",
+        "mreproj_prec@3px",
+        "mreproj_prec@5px",
+        "valid_pairs_reproj",
+        "mcovisible",
+        "mcovisible_percent",
+        "mgt_match_recall@3px",
+        "mgt_match_precision@3px",
+        "rel_pose_error@5°",
+        "rel_pose_error@10°",
+        "rel_pose_error@20°",
+        "rel_pose_error_mAA",
+        "mrel_pose_error",
+        "valid_pairs_pose",
+        "mransac_inl",
+        "mransac_inl%",
+    ],
+    "endomapper_dense1500": [
+        "experiment",
+        "num_total_pairs",
+        "mnum_matches",
+        "mnum_keypoints",
+        "mreproj_prec@1px",
+        "mreproj_prec@3px",
+        "mreproj_prec@5px",
+        "valid_pairs_reproj",
+        "rel_pose_error@5°",
+        "rel_pose_error@10°",
+        "rel_pose_error@20°",
+        "rel_pose_error_mAA",
+        "mrel_pose_error",
+        "valid_pairs_pose",
+        "mransac_inl",
+        "mransac_inl%",
+    ],
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build a single report table from MegaDepth summaries.json files."
+        description="Build a single report table from benchmark summaries.json files."
+    )
+    parser.add_argument(
+        "--benchmark",
+        choices=tuple(DEFAULT_COLUMNS.keys()),
+        default=DEFAULT_BENCHMARK,
+        help="Benchmark whose result folders and curated default metrics should be used.",
     )
     parser.add_argument(
         "--root",
         type=Path,
-        default=DEFAULT_ROOT,
-        help=f"Directory that contains one folder per experiment (default: {DEFAULT_ROOT}).",
+        default=None,
+        help="Directory that contains one folder per experiment.",
     )
     parser.add_argument(
         "--format",
@@ -96,7 +122,10 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Sort in descending order.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.root is None:
+        args.root = Path("outputs/results") / args.benchmark
+    return args
 
 
 def load_summary(path: Path) -> dict[str, Any]:
@@ -173,22 +202,24 @@ def build_rows(args: argparse.Namespace) -> tuple[list[str], list[dict[str, Any]
 
     if use_all_metrics:
         # Stable order: preferred keys first, then remaining keys alphabetically.
-        preferred = [k for k in DEFAULT_COLUMNS if k != "experiment"]
+        default_columns = DEFAULT_COLUMNS[args.benchmark]
+        preferred = [k for k in default_columns if k != "experiment"]
         rest = sorted(k for k in metric_keys if k not in set(preferred))
         columns = []
         if args.split_name:
             columns.extend(["extractor", "extractor_conf", "matcher_conf"])
         else:
             columns.append("experiment")
-        columns.extend([k for k in preferred if k in metric_keys])
+        columns.extend(preferred)
         columns.extend(rest)
     else:
+        default_columns = DEFAULT_COLUMNS[args.benchmark]
         columns = []
         if args.split_name:
             columns.extend(["extractor", "extractor_conf", "matcher_conf"])
         else:
             columns.append("experiment")
-        columns.extend([k for k in DEFAULT_COLUMNS if k != "experiment"])
+        columns.extend([k for k in default_columns if k != "experiment"])
 
     return columns, rows
 

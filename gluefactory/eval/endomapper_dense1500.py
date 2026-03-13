@@ -36,10 +36,9 @@ class EndomapperDense1500Pipeline(EvalPipeline):
             "depth_format": "npz",
             "crop_endomapper_dense": True,
             "depth_scale_scene_info_dir": "endomapper_dense/scene_info",
+            "read_specular_mask": True,
+            "specular_scene_info_dir": "endomapper_dense/scene_info",
             "scene_list": ["endomapper_dense1500"],
-            "preprocessing": {
-                "side": "long",
-            },
         },
         "model": {
             "ground_truth": {
@@ -109,6 +108,8 @@ class EndomapperDense1500Pipeline(EvalPipeline):
                 counts["num_pairs_no_keypoints"] += 1
 
             results_i = {}
+            results_i["num_matches"] = num_matches
+            results_i["num_keypoints"] = 0.5 * (num_kpts0 + num_kpts1)
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
                 if np.isfinite(results_i["reproj_prec@1px"]):

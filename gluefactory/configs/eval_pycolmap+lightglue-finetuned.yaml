@@ -41,6 +41,10 @@ benchmarks:
       eval:
         estimator: poselib
         ransac_th: 1
+    endomapper_dense1500:
+      eval:
+        estimator: poselib
+        ransac_th: 1
     hpatches:
       eval:
         estimator: opencv

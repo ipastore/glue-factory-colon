@@ -4,6 +4,7 @@ Simply load images from a folder or nested folders (does not have any split).
 
 import ast
 import logging
+from pathlib import Path
 
 import cv2
 import h5py
@@ -71,6 +72,16 @@ def load_depth(depth_path, dformat):
         raise ValueError(dformat)
 
 
+def load_specular_mask(specular_path):
+    with np.load(str(specular_path)) as data:
+        if "mask_packbits" not in data or "mask_shape" not in data:
+            raise KeyError(f"Specular mask array not found in {specular_path}.")
+        packed = data["mask_packbits"]
+        h, w = data["mask_shape"].astype(np.int64).tolist()
+        flat = np.unpackbits(packed, count=int(h * w))
+    return torch.from_numpy(flat.reshape((h, w)).astype(bool, copy=False))
+
+
 class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
     default_conf = {
         "root": "???",
@@ -78,6 +89,8 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
         "depth_dir": None,  # optional
         "crop_endomapper_dense": False,
         "depth_scale_scene_info_dir": None,
+        "read_specular_mask": False,
+        "specular_scene_info_dir": None,
         "views": "???",
         "extra_data": None,  # text file with extra data
         "extra_keys": [],
@@ -111,6 +124,7 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
         self.views = {}
         self.extra_data = {}
         self.depth_scales = {}
+        self.specular_masks = {}
 
         self.items = []
         for scene in self.scenes:
@@ -171,6 +185,32 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
                     }
                 )
 
+        if conf.read_specular_mask:
+            if not conf.specular_scene_info_dir:
+                raise ValueError("specular_scene_info_dir must be set when read_specular_mask is True.")
+            scene_info_dir = DATA_PATH / conf.specular_scene_info_dir
+            seq_maps = {
+                str(name).split("/", 1)[0]
+                for scene_views in self.views.values()
+                for name in scene_views.keys()
+            }
+            for seq_map in sorted(seq_maps):
+                scene_info_path = scene_info_dir / f"{seq_map}.npz"
+                with np.load(str(scene_info_path), allow_pickle=True) as info:
+                    image_names = [str(x) for x in info["image_names"].tolist()]
+                    specular_paths = [str(x) for x in info["specular_mask_paths"].tolist()]
+                self.specular_masks.update(
+                    {
+                        f"{seq_map}/{image_name}": self.root
+                        / scene
+                        / (
+                            Path(specular_path).relative_to("endomapper_dense")
+                            if Path(specular_path).parts[:1] == ("endomapper_dense",)
+                            else Path(specular_path)
+                        )
+                        for image_name, specular_path in zip(image_names, specular_paths)
+                    }
+                )
         self.preprocessor = ImagePreprocessor(conf.preprocessing)
 
     def get_dataset(self, split):
@@ -209,6 +249,24 @@ class PosedImageDataset(BaseDataset, torch.utils.data.Dataset):
             data["valid_depth"] = (data["depth"] > 0).float()
 
             assert data["depth"].shape[-2:] == data["image"].shape[-2:]
+
+        if self.conf.read_specular_mask:
+            specular_mask = load_specular_mask(self.specular_masks[name])
+            if self.conf.crop_endomapper_dense:
+                if tuple(specular_mask.shape[-2:]) == raw_image_shape:
+                    specular_mask, _ = self.preprocessor.crop_endomapper_dense(
+                        specular_mask
+                    )
+                elif tuple(specular_mask.shape[-2:]) != tuple(img.shape[-2:]):
+                    raise ValueError(
+                        f"Specular mask shape mismatch for {self.specular_masks[name]}: "
+                        f"{tuple(specular_mask.shape[-2:])} vs image {tuple(img.shape[-2:])}."
+                    )
+            data["specular_mask"] = self.preprocessor(
+                specular_mask.float(),
+                interpolation="nearest",
+            )["image"] > 0.5
+            assert data["specular_mask"].shape[-2:] == data["image"].shape[-2:]
 
         if self.conf.extra_data:
             data = {

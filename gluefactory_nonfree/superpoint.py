@@ -55,6 +55,7 @@ from torch import nn
 
 from gluefactory.models.base_model import BaseModel
 from gluefactory.models.utils.misc import pad_and_stack
+from gluefactory.models.extractors.utils import filter_keypoints_by_specular_mask
 
 
 def simple_nms(scores, radius):
@@ -166,6 +167,7 @@ class SuperPoint(BaseModel):
         "randomize_keypoints_training": False,
         "remove_borders": 4,
         "legacy_sampling": True,  # True to use the old broken sampling
+        "filter_specular_keypoints": True,
     }
     required_data_keys = ["image"]
 
@@ -300,6 +302,26 @@ class SuperPoint(BaseModel):
 
             # Convert (h, w) to (x, y)
             keypoints = [torch.flip(k, [1]).float() for k in keypoints]
+
+            if self.conf.filter_specular_keypoints and "specular_mask" in data:
+                filtered_keypoints = []
+                filtered_scores = []
+                specular_mask = data["specular_mask"]
+                for i, (kpts, kpt_scores) in enumerate(zip(keypoints, scores)):
+                    image_size = None
+                    if "image_size" in data:
+                        image_size = data["image_size"][i]
+                    kpts, kpt_scores = filter_keypoints_by_specular_mask(
+                        kpts,
+                        specular_mask[i],
+                        kpt_scores,
+                        image_size=image_size,
+                        keypoint_offset=0.0,
+                    )
+                    filtered_keypoints.append(kpts)
+                    filtered_scores.append(kpt_scores)
+                keypoints = filtered_keypoints
+                scores = filtered_scores
 
             if self.conf.force_num_keypoints:
                 keypoints = pad_and_stack(

@@ -4,7 +4,7 @@ model:
       name: extractors.sift
       backend: py_cudasift
       max_num_keypoints: 4096
-      detection_threshold: 0.01
+      detection_threshold: 0.0001
       rootsift: true
       nms_radius: 0
       first_octave: -1
@@ -31,6 +31,10 @@ benchmarks:
         preprocessing:
           side: long
           resize: 1600
+      eval:
+        estimator: poselib
+        ransac_th: 1
+    endomapper_dense1500:
       eval:
         estimator: poselib
         ransac_th: 1

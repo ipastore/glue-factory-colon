@@ -18,6 +18,7 @@ except ImportError:
     cudasift_py = None
 
 from ..base_model import BaseModel
+from .utils import filter_keypoints_by_specular_mask
 from ..utils.misc import pad_to_length
 
 
@@ -104,7 +105,7 @@ class SIFT(BaseModel):
         "force_num_keypoints": False,
         "random_topk": False,  # if True, pick random topk even when scores are available
         "mask_out_padded_kpts": False,
-        "filter_specular_keypoints": True,
+        "filter_specular_keypoints": True
     }
 
     required_data_keys = ["image"]
@@ -302,6 +303,31 @@ class SIFT(BaseModel):
             )
 
         pred = {k: torch.from_numpy(v) for k, v in pred.items()}
+        if self.conf.filter_specular_keypoints and specular_mask is not None:
+            num_before_spec = len(pred["keypoints"])
+            filtered = filter_keypoints_by_specular_mask(
+                pred["keypoints"],
+                specular_mask,
+                pred["scales"],
+                pred["oris"],
+                pred["descriptors"],
+                pred.get("keypoint_scores"),
+                keypoint_offset=0.5,
+            )
+            (
+                pred["keypoints"],
+                pred["scales"],
+                pred["oris"],
+                pred["descriptors"],
+                pred["keypoint_scores"],
+            ) = filtered
+            num_after_spec = len(pred["keypoints"])
+            logger.debug(
+                "SIFT [%s]: specular filtered out %d / %d keypoints",
+                self.conf.backend,
+                num_before_spec - num_after_spec,
+                num_before_spec,
+            )
 
         # Keep only the top-k keypoints by score or scale
         # Since max_num_keypoints is a soft upper limit, we must re filter to check

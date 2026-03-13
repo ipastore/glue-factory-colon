@@ -8,6 +8,7 @@ from torch.nn.modules.utils import _pair
 from torchvision.models import resnet
 
 from gluefactory.models.base_model import BaseModel
+from .utils import filter_keypoints_by_specular_mask
 
 # coordinates system
 #  ------------------------------>  [ x: range=-1.0~1.0; w: range=0~W ]
@@ -596,6 +597,7 @@ class ALIKED(BaseModel):
         "force_num_keypoints": False,
         "pretrained": True,
         "nms_radius": 2,
+        "filter_specular_keypoints": True,
     }
 
     checkpoint_url = "https://github.com/Shiaoming/ALIKED/raw/main/models/{}.pth"
@@ -771,6 +773,34 @@ class ALIKED(BaseModel):
             score_map, image_size=data.get("image_size")
         )
         descriptors, _ = self.desc_head(feature_map, keypoints)
+        if self.conf.filter_specular_keypoints and "specular_mask" in data:
+            filtered_keypoints = []
+            filtered_scores = []
+            filtered_descriptors = []
+            filtered_dispersities = []
+            for i, (k, s, d, sd) in enumerate(
+                zip(keypoints, kptscores, descriptors, scoredispersitys)
+            ):
+                image_size = data.get("image_size")
+                if image_size is not None:
+                    image_size = image_size[i]
+                k, s, d, sd = filter_keypoints_by_specular_mask(
+                    k,
+                    data["specular_mask"][i],
+                    s,
+                    d,
+                    sd,
+                    image_size=image_size,
+                    keypoint_offset=0.0,
+                )
+                filtered_keypoints.append(k)
+                filtered_scores.append(s)
+                filtered_descriptors.append(d)
+                filtered_dispersities.append(sd)
+            keypoints = filtered_keypoints
+            kptscores = filtered_scores
+            descriptors = filtered_descriptors
+            scoredispersitys = filtered_dispersities
 
         _, _, h, w = image.shape
         wh = torch.tensor([w - 1, h - 1], device=image.device)

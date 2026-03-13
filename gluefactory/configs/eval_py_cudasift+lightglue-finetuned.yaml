@@ -1,4 +1,6 @@
-checkpoint: outputs/training/py_cudasift_finetune+lg_MD_continue_V2/checkpoint_best.tar
+# checkpoint: outputs/training/py_cudasift_finetune+lg_MD_continue_V2/checkpoint_best.tar
+checkpoint: outputs/training/long26_gt_pos_null_10_lg1e-03_lr5e-05_5bin/checkpoint_best.tar
+
 model:
     name: two_view_pipeline
     extractor:
@@ -8,7 +10,7 @@ model:
         force_num_keypoints: False
         nms_radius: 0
         trainable: False
-        detection_threshold: 0.4  # 1.7 0.4   
+        detection_threshold: 0.0001  # 1.7 0.4   
         rootsift: true
         first_octave: -1
         num_octaves: 4          # 6  3
@@ -34,6 +36,10 @@ benchmarks:
         preprocessing:
           side: long
           resize: 1600
+      eval:
+        estimator: poselib
+        ransac_th: 1.0
+    endomapper_dense1500:
       eval:
         estimator: poselib
         ransac_th: 1.0

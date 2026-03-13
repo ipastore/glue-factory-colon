@@ -2,6 +2,7 @@ import kornia
 import torch
 
 from ..base_model import BaseModel
+from .utils import filter_keypoints_by_specular_mask
 from ..utils.misc import pad_and_stack
 
 
@@ -16,6 +17,7 @@ class DISK(BaseModel):
         "force_num_keypoints": False,
         "pad_if_not_divisible": True,
         "chunk": 4,  # for reduced VRAM in training
+        "filter_specular_keypoints": True,
     }
     required_data_keys = ["image"]
 
@@ -74,6 +76,29 @@ class DISK(BaseModel):
             scores += [f.detection_scores for f in features]
             descriptors += [f.descriptors for f in features]
             del features
+
+        if self.conf.filter_specular_keypoints and "specular_mask" in data:
+            filtered_keypoints = []
+            filtered_scores = []
+            filtered_descriptors = []
+            for i, (k, s, d) in enumerate(zip(keypoints, scores, descriptors)):
+                image_size = data.get("image_size")
+                if image_size is not None:
+                    image_size = image_size[i]
+                k, s, d = filter_keypoints_by_specular_mask(
+                    k + 0.5,
+                    data["specular_mask"][i],
+                    s,
+                    d,
+                    image_size=image_size,
+                    keypoint_offset=0.5,
+                )
+                filtered_keypoints.append(k - 0.5)
+                filtered_scores.append(s)
+                filtered_descriptors.append(d)
+            keypoints = filtered_keypoints
+            scores = filtered_scores
+            descriptors = filtered_descriptors
 
         if self.conf.force_num_keypoints:
             # pad to target_length

@@ -19,6 +19,15 @@ benchmarks:
         eval:
             estimator: poselib
             ransac_th: 1  # Use 1 for poselib
+    endomapper_dense1500:
+        model:
+            matcher:
+                internal_hw: [504, 504]
+                output_hw: [504, 672]
+                sample_num_matches: 5000
+        eval:
+            estimator: poselib
+            ransac_th: 1
     scannet1500:
         model:
             matcher:

@@ -4,7 +4,7 @@ model:
         name: extractors.sift
         detector: pycolmap_cuda
         max_num_keypoints: 2048
-        detection_threshold: 0.00666666
+        detection_threshold: 0.0000006
         nms_radius: -1
         pycolmap_options:
           first_octave: -1
@@ -19,6 +19,10 @@ benchmarks:
         eval:
             estimator: opencv
             ransac_th: 0.5
+    endomapper_dense1500:
+        eval:
+            estimator: poselib
+            ransac_th: 1
     hpatches:
         eval:
             estimator: opencv
