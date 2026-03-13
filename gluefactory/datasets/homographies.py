@@ -60,6 +60,8 @@ class HomographyDataset(BaseDataset):
         "grayscale": False,
         "triplet": False,
         "right_only": False,  # image0 is orig (rescaled), image1 is right
+        "left_view_difficulty": None,
+        "right_view_difficulty": None,
         "reseed": False,
         "crop_vignette": False,  # For endomapper. Since we are using a patch smaller than the original image size, we take advantage of resize to crop the vignette
         "vignette_crop_coords": None,  # [x1, x2, y1, y2] or None for auto-center
@@ -273,7 +275,6 @@ class _Dataset(torch.utils.data.Dataset):
             features = self.feature_loader({k: [v] for k, v in data.items()})
             features = self._transform_keypoints(features, data)
             data["cache"] = features
-
         return data
 
     def getitem(self, idx):
@@ -302,9 +303,14 @@ class _Dataset(torch.utils.data.Dataset):
         left_conf = omegaconf.OmegaConf.to_container(self.conf.homography)
         if self.conf.right_only:
             left_conf["difficulty"] = 0.0
+        if self.conf.left_view_difficulty is not None:
+            left_conf["difficulty"] = self.conf.left_view_difficulty
+        right_conf = omegaconf.OmegaConf.to_container(self.conf.homography)
+        if self.conf.right_view_difficulty is not None:
+            right_conf["difficulty"] = self.conf.right_view_difficulty
 
         data0 = self._read_view(img, left_conf, ps, left=True)
-        data1 = self._read_view(img, self.conf.homography, ps, left=False)
+        data1 = self._read_view(img, right_conf, ps, left=False)
 
         H = compute_homography(data0["coords"], data1["coords"], [1, 1])
 
