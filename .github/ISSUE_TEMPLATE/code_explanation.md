@@ -1,9 +1,11 @@
 ---
 name: Code Explanation Request
-about: I have doubts about a piece of code or config — request an explanation to be discussed in comments
+about: I have doubts about a piece of code or config — request an explanation to be
+  discussed in comments
 title: "[EXPLAIN] "
-labels: docs, question, P3-low
+labels: question
 assignees: ''
+
 ---
 
 ## What I'm Looking At

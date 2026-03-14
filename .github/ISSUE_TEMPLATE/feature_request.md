@@ -2,8 +2,9 @@
 name: Feature Request
 about: Propose a new feature, improvement, or training experiment
 title: "[FEAT] "
-labels: feature, P2-medium
+labels: enhancement
 assignees: ''
+
 ---
 
 ## Type

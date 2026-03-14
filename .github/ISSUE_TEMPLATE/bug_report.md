@@ -2,8 +2,9 @@
 name: Bug Report
 about: Report a bug or unexpected behavior in training, inference, or data pipelines
 title: "[BUG] "
-labels: bug, P2-medium
+labels: bug
 assignees: ''
+
 ---
 
 ## Description
@@ -68,4 +69,3 @@ Paste full traceback here
 
 ## Suggested Fix
 <!-- Optional: any ideas on how to fix it -->
-
