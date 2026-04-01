@@ -6,8 +6,8 @@ from lightglue.lightglue import LightGlue
 import gluefactory
 
 if __name__ == "__main__":
-    experiment = "longval001_null_10_lr1e-04"
-    weights_name = "longval001_null_10_lr1e-04_600k.pt"
+    experiment = "04-py_cudasift+lg_MD_3D"
+    weights_name = f"{experiment}.pt"
     
     # 1. Load the experiment
     print(f"Loading experiment: {experiment}")
