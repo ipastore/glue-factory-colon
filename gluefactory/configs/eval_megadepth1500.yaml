@@ -1,0 +1,10 @@
+benchmarks:
+    megadepth1500:
+      data:
+        num_workers: 4
+        preprocessing:
+          side: long
+          resize: 1600
+      eval:
+        estimator: poselib
+        ransac_th: -1      # Test over different thresholds and report the best one

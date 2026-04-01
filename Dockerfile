@@ -14,7 +14,10 @@ ARG PYTORCH_VERSION=1.13.1
 ARG TORCHVISION_VERSION=0.14.1
 ARG CUDASIFT_REPO=https://github.com/ipastore/CudaSift-py-wrapper.git
 ARG CUDASIFT_CUDA_ARCHS=70
+ARG CUDASIFT_CUDA_ARCHS_SM=7.0
 ARG CUDASIFT_DIR=/opt/CudaSift-py-wrapper
+ARG ROMA_REPO=https://github.com/Parskatt/RoMa.git
+ARG ROMA_DIR=/opt/RoMa
 ARG USERNAME=dev
 ARG USER_UID=1000
 ARG PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu114
@@ -66,7 +69,7 @@ RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
         'pycolmap==0.4.0' && \
     conda clean -afy
 
-# Install PyTorch and torchvision via pip to use system CUDA 11.8.
+# Install PyTorch and torchvision via pip from the matching CUDA wheel index.
 # This avoids conda/pip conflicts by keeping PyTorch separate from conda-managed packages.
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
@@ -74,6 +77,7 @@ RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
         torch==${PYTORCH_VERSION} \
         torchvision==${TORCHVISION_VERSION} \
         --index-url ${PYTORCH_INDEX_URL}
+        
 # Ensure pycolmap exposes CUDA support at runtime.
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
@@ -89,16 +93,10 @@ print(f"torch.cuda available: {torch.cuda.is_available()}")
 print(f"CUDA devices visible to torch: {torch.cuda.device_count()}")
 PYCODE
 
-WORKDIR /workspace
-
-# Copy repository contents.
-COPY . .
-
-# Install Glue Factory and optional extras (except pycolmap which comes from conda).
+# ── 1. Pure-Python dependencies (order-independent) ──────────────────────
 RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
     python -m pip install --no-cache-dir --upgrade pip && \
-    python -m pip install --no-cache-dir --no-deps -e . && \
     python -m pip install --no-cache-dir \
         numpy \
         opencv-python \
@@ -111,10 +109,55 @@ RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
         albumentations \
         seaborn \
         joblib \
+        einops \
+        loguru \
+        timm \
+        wandb \
+        "poselib>=2.0.4" \
         "scikit-learn==1.3.2" \
-        "kornia==0.6.12" && \
-    python -m pip install --no-cache-dir --no-deps "lightglue @ git+https://github.com/cvg/LightGlue.git" && \
-    python -m pip install --no-cache-dir poselib
+        "kornia>=0.6.12"
+
+# ── 2. CUDA C++ extension – build from source against the installed torch ─
+#    --no-build-isolation → sees the already-installed torch headers
+#    --no-deps            → don't let pip pull a different torch
+RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
+    conda activate "${CONDA_ENV}" && \
+    TORCH_CUDA_ARCH_LIST="${CUDASIFT_CUDA_ARCHS_SM}" \
+    python -m pip install --no-cache-dir --no-deps --no-build-isolation \
+        "fused-local-corr @ git+https://github.com/Parskatt/fused-local-corr.git"
+
+# ── 3. Git-only packages (--no-deps, all their deps already installed) ────
+#    LightGlue before RoMa and GlueFactory since GF lists it as a dep.
+RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
+    conda activate "${CONDA_ENV}" && \
+    python -m pip install --no-cache-dir --no-deps \
+        "lightglue @ git+https://github.com/cvg/LightGlue.git" && \
+    python -m pip install --no-cache-dir --no-deps \
+        "romatch @ git+https://github.com/Parskatt/RoMa.git"
+
+# ── 4. Glue Factory itself (editable, --no-deps) ─────────────────────────
+WORKDIR /workspace
+COPY . .
+RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
+    conda activate "${CONDA_ENV}" && \
+    python -m pip install --no-cache-dir --no-deps -e .
+
+# ── 5. Validation ────────────────────────────────────────────────────────
+RUN . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
+    conda activate "${CONDA_ENV}" && \
+    python - <<'PYCODE'
+import pycolmap, torch, local_corr
+from romatch.models.model_zoo.roma_models import roma_model
+
+print(f"torch version:    {torch.__version__}")
+print(f"torch CUDA:       {torch.cuda.is_available()}")
+print(f"pycolmap version: {pycolmap.__version__}")
+print(f"pycolmap CUDA:    {pycolmap.has_cuda}")
+print(f"local_corr:       {local_corr.__file__}")
+print(f"RoMa:             {roma_model.__name__}")
+assert pycolmap.has_cuda, "pycolmap built without CUDA"
+PYCODE
+
 
 # Build CudaSift Python wrapper in release mode and validate import.
 # Keep it outside /workspace so bind-mounting /workspace at runtime does not hide it.

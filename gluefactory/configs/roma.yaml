@@ -22,9 +22,12 @@ benchmarks:
     endomapper_dense1500:
         model:
             matcher:
-                internal_hw: [504, 504]
-                output_hw: [504, 672]
-                sample_num_matches: 5000
+                weights: indoor # Default outdoor. Options indoor, outdoor
+                internal_hw: [518, 518] # Default 560x560. Must be square, divisible by 14
+                output_hw: [518, 672]   # Default None. Not square constrained, dibisible by 14
+                sample_num_matches: 5000 # if <=0 dense matching
+                # max_kp_error: 2         # Default 2
+                # filter_threshold: 0.05 # Default 0.05
         eval:
             estimator: poselib
             ransac_th: 1

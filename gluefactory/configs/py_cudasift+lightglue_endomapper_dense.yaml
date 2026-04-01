@@ -4,18 +4,19 @@ data:
     train_split: train_seqs.txt
     train_num_per_scene: 300  #300
     val_split: val_seqs.txt
-    val_num_per_scene: 10 
+    val_num_per_scene: 1500 
     val_pairs: null
     overfit_split: overfit_seqs.txt
     overfit_pairs: null
-    overfit_num_per_scene: 10
+    overfit_num_per_scene: 5
     min_overlap: 0.0
     max_overlap: 0.99
     num_overlap_bins: 5
     read_depth: true
     read_image: true
     batch_size: 4 #32
-    num_workers: 0 #0 #14
+    val_batch_size: 1
+    num_workers: 4 #0 #14
     load_features:
         do: true
         path: exports/endomapper-dense-py-cudasift-k2048_no_scale/{seq_map}.h5

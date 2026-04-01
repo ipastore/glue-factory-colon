@@ -1,79 +1,36 @@
-# Experiment Matrix — All Pipeline Combinations
+## Type
+<!-- Check one -->
+- [ ] New feature / module
+- [ ] Code improvement / refactor
+- [x] Training experiment (new config, augmentation, loss, architecture tweak)
+- [ ] Evaluation / metric improvement
+- [ ] Performance optimization
+- [ ] Other: ___
 
-**Milestone:** Finish all Experiments
-**Labels:** `experiment`, `P1-high`
 
-Track all extractor+matcher and end-to-end combinations. Check off each one when the experiment issue is created and linked. Add the EXP-ID and link to the results comment when done.
+## Summary
+<!-- One sentence: what you want to add or change and why -->
+Add Master as an end-to-end baseline
+## Motivation
+<!-- Why is this needed? What problem does it solve in the context of colon endoscopy? -->
+Improvement of comparisons
 
+## Proposed Implementation
+<!-- Describe the approach. Be as specific as possible. -->
+There is an open PR in the official repo https://github.com/cvg/glue-factory/pull/136
+
+### Interface Changes
+<!-- Will this change any function signatures, config keys, or data formats? -->
+Check if there is a forward_masked pass for Master
 ---
+## Acceptance Criteria
+<!-- What does "done" look like? Check these off as you go -->
+- [ ]
+- [ ]
+- [ ]
+- [ ] Unit test or evaluation confirms improvement
+- [ ] Results documented in this issue as a comment
 
-## End-to-End
-
-| # | Model | EXP-ID |
-|---|---|---|---|
-| | ROMA | | |
-| | Master | | |
-
----
-
-## SIFT Extractors
-
-### py_colmap
-
-| # | Matcher | Variant | EXP-ID |
-|---|---|---|---|---|
-| | NN | — | | |
-| | LG (SIFT) | `oob` | | |
-| | LG (SIFT) | `ft_ENDO_HOMO` | | |
-| | LG (SIFT) | `ft_ENDO_3D` | | |
-| | ROMA | — | | |
-
-### py_cudasift
-
-| # | Matcher | Variant | EXP-ID |
-|---|---|---|---|---|
-| | NN | — | | |
-| | LG (SIFT) | `oob` | | |
-| | LG (SIFT) | `ft_ENDO_HOMO` | | |
-| | LG (SIFT) | `ft_ENDO_3D` | | |
-| | ROMA | — | | |
-
----
-
-## SuperPoint Extractors
-
-### SuperPoint `oob`
-
-| # | Matcher | Variant | EXP-ID |
-|---|---|---|---|---|
-| | NN | — | | |
-| | LG (SuperPoint) | `oob` | | |
-| | LG (SuperPoint) | `ft_ENDO_HOMO` | | |
-| | LG (SuperPoint) | `ft_ENDO_3D` | | |
-| | ROMA | — | | |
-
-### SuperPoint `esuperpoint`
-
-| # | Matcher | Variant | EXP-ID |
-|---|---|---|---|---|
-| | NN | — | | |
-| | LG (SuperPoint) | `oob` | | |
-| | LG (SuperPoint) | `ft_ENDO_HOMO` | | |
-| | LG (SuperPoint) | `ft_ENDO_3D` | | |
-| | ROMA | — | | |
-
-### SuperPoint `ours`
-
-| # | Matcher | Variant | EXP-ID |
-|---|---|---|---|---|
-| | NN | — | | |
-| | LG (SuperPoint) | `oob` | | |
-| | LG (SuperPoint) | `ft_ENDO_HOMO` | | |
-| | LG (SuperPoint) | `ft_ENDO_3D` | | |
-| | ROMA | — | | |
-
----
-
-<!--
-Fill in the EXP-ID column when you create the sub-issue.
--->
+## References
+<!-- Papers, upstream commits, or prior experiments to reference -->
+-

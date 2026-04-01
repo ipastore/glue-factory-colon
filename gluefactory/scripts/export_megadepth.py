@@ -77,12 +77,17 @@ configs = {
             "max_num_keypoints": n_kpts,
             "force_num_keypoints": False,
             "nms_radius": 3,
-            "detection_threshold": 0.0000667,
+            "detection_threshold": 1e-12,
             "rootsift": True,
             "first_octave": -1,
             "num_octaves": 4,
             "init_blur": 1.0,
             "extractor_channel": "grayscale",
+            "filter_kpts_with_wrapper": False,
+            "filter_with_scale_weighting": True,
+            "filter_with_lowest_scale": False,
+            "random_topk": False,
+            "mask_out_padded_kpts": False
         },
     },
     "keynet-affnet-hardnet": {
