@@ -1,9 +1,9 @@
 import argparse
+from importlib import resources
 from pathlib import Path
 from pprint import pprint
 from typing import Optional
 
-import pkg_resources
 from omegaconf import OmegaConf
 
 from ..models import get_model
@@ -13,11 +13,10 @@ from ..utils.experiments import load_experiment
 
 def parse_config_path(name_or_path: Optional[str], defaults: str) -> Path:
     default_configs = {}
-    for c in pkg_resources.resource_listdir("gluefactory", str(defaults)):
-        if c.endswith(".yaml"):
-            default_configs[Path(c).stem] = Path(
-                pkg_resources.resource_filename("gluefactory", defaults + c)
-            )
+    defaults_dir = resources.files("gluefactory").joinpath(defaults)
+    for entry in defaults_dir.iterdir():
+        if entry.name.endswith(".yaml"):
+            default_configs[Path(entry.name).stem] = Path(entry)
     if name_or_path is None:
         return None
     if name_or_path in default_configs:
