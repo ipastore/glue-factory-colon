@@ -109,8 +109,8 @@ def eval_matches_depth(data: dict, pred: dict) -> dict:
     results["reproj_prec@3px"] = (reproj_error < 3).float().mean().nan_to_num().item()
     results["reproj_prec@5px"] = (reproj_error < 5).float().mean().nan_to_num().item()
     results["covisible"] = valid.float().sum().item()
-    results["covisible_percent"] = valid.float().mean().item() * 100.0
-
+    results["covisible_percent"] = valid.float().mean().nan_to_num().item() * 100.0
+    
     device = "cuda" if torch.cuda.is_available() else "cpu"
     gt_pred = gt_matches_from_pose_depth(
         kp0[None].to(device),
@@ -218,8 +218,7 @@ def eval_relative_pose_robust(data, pred, conf):
         t_error, r_error = relative_pose_error(T_gt, M.R, M.t)
         results["rel_pose_error"] = max(r_error, t_error)
         results["ransac_inl"] = np.sum(inl)
-        results["ransac_inl%"] = np.mean(inl)
-
+        results["ransac_inl%"] = 0 if inl.size == 0 else np.mean(inl)
     return results
 
 

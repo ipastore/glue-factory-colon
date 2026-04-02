@@ -139,7 +139,7 @@ class MegaDepth1500Pipeline(EvalPipeline):
             arr = np.array(v)
             if not np.issubdtype(np.array(v).dtype, np.number):
                 continue
-            summaries[f"m{k}"] = round(np.mean(arr), 3)
+            summaries[f"m{k}"] = round(np.median(arr), 3)
 
         best_pose_results, best_th = eval_poses(
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
