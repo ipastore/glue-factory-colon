@@ -89,7 +89,6 @@ class EndomapperDense1500Pipeline(EvalPipeline):
         """Run the eval on cached predictions"""
         conf = self.conf.eval
         results = defaultdict(list)
-        counts = defaultdict(int)
         min_matches_for_pose = 5
         test_thresholds = (
             ([conf.ransac_th] if conf.ransac_th > 0 else [0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
@@ -99,21 +98,16 @@ class EndomapperDense1500Pipeline(EvalPipeline):
         pose_results = defaultdict(lambda: defaultdict(list))
         cache_loader = CacheLoader({"path": str(pred_file), "collate": None}).eval()
         for _, data in enumerate(tqdm(loader)):
-            counts["num_total_pairs"] += 1
             pred = cache_loader(data)
             num_kpts0 = int(pred["keypoints0"].shape[0])
             num_kpts1 = int(pred["keypoints1"].shape[0])
             num_matches = int((pred["matches0"] > -1).sum().item())
-            if num_kpts0 == 0 or num_kpts1 == 0:
-                counts["num_pairs_no_keypoints"] += 1
 
             results_i = {}
             results_i["num_matches"] = num_matches
             results_i["num_keypoints"] = 0.5 * (num_kpts0 + num_kpts1)
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
-                if np.isfinite(results_i["reproj_prec@1px"]):
-                    counts["valid_pairs_reproj"] += 1
 
             for th in test_thresholds:
                 if num_matches < min_matches_for_pose:
@@ -129,8 +123,6 @@ class EndomapperDense1500Pipeline(EvalPipeline):
                         {"estimator": conf.estimator, "ransac_th": th},
                     )
                 [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
-            if num_matches >= min_matches_for_pose:
-                counts["valid_pairs_pose"] += 1
 
             results_i["names"] = data["name"][0]
             if "scene" in data.keys():
@@ -149,12 +141,8 @@ class EndomapperDense1500Pipeline(EvalPipeline):
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
         )
         results = {**results, **pose_results[best_th]}
-        combined_summaries = {**summaries, **best_pose_results}
-        summaries = {"num_total_pairs": int(counts["num_total_pairs"])}
-        for k, v in combined_summaries.items():
+        for k, v in best_pose_results.items():
             summaries[k] = v
-        summaries["valid_pairs_reproj"] = int(counts["valid_pairs_reproj"])
-        summaries["valid_pairs_pose"] = int(counts["valid_pairs_pose"])
 
         figures = {
             "pose_recall": plot_cumulative(

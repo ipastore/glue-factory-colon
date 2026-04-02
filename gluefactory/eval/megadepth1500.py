@@ -103,8 +103,6 @@ class MegaDepth1500Pipeline(EvalPipeline):
         """Run the eval on cached predictions"""
         conf = self.conf.eval
         results = defaultdict(list)
-        counts = defaultdict(int)
-        min_matches_for_pose = 5
         test_thresholds = (
             ([conf.ransac_th] if conf.ransac_th > 0 else [0.5, 1.0, 1.5, 2.0, 2.5, 3.0])
             if not isinstance(conf.ransac_th, Iterable)
@@ -113,37 +111,18 @@ class MegaDepth1500Pipeline(EvalPipeline):
         pose_results = defaultdict(lambda: defaultdict(list))
         cache_loader = CacheLoader({"path": str(pred_file), "collate": None}).eval()
         for i, data in enumerate(tqdm(loader)):
-            counts["num_total_pairs"] += 1
             pred = cache_loader(data)
-            num_kpts0 = int(pred["keypoints0"].shape[0])
-            num_kpts1 = int(pred["keypoints1"].shape[0])
-            num_matches = int((pred["matches0"] > -1).sum().item())
-            if num_kpts0 == 0 or num_kpts1 == 0:
-                counts["num_pairs_no_keypoints"] += 1
-            if num_matches > 0:
-                counts["valid_pairs_epi"] += 1
             # add custom evaluations here
             results_i = eval_matches_epipolar(data, pred)
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
-                if np.isfinite(results_i["reproj_prec@1px"]):
-                    counts["valid_pairs_reproj"] += 1
             for th in test_thresholds:
-                if num_matches < min_matches_for_pose:
-                    pose_results_i = {
-                        "rel_pose_error": float("nan"),
-                        "ransac_inl": float("nan"),
-                        "ransac_inl%": float("nan"),
-                    }
-                else:
-                    pose_results_i = eval_relative_pose_robust(
-                        data,
-                        pred,
-                        {"estimator": conf.estimator, "ransac_th": th},
-                    )
+                pose_results_i = eval_relative_pose_robust(
+                    data,
+                    pred,
+                    {"estimator": conf.estimator, "ransac_th": th},
+                )
                 [pose_results[th][k].append(v) for k, v in pose_results_i.items()]
-            if num_matches >= min_matches_for_pose:
-                counts["valid_pairs_pose"] += 1
 
             # we also store the names for later reference
             results_i["names"] = data["name"][0]
@@ -160,34 +139,16 @@ class MegaDepth1500Pipeline(EvalPipeline):
             arr = np.array(v)
             if not np.issubdtype(np.array(v).dtype, np.number):
                 continue
-            summaries[f"m{k}"] = round(np.nanmean(arr), 3) if np.any(np.isfinite(arr)) else np.nan
+            summaries[f"m{k}"] = round(np.mean(arr), 3)
 
         best_pose_results, best_th = eval_poses(
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
         )
         results = {**results, **pose_results[best_th]}
-        combined_summaries = {**summaries, **best_pose_results}
-        summaries = {"num_total_pairs": int(counts["num_total_pairs"])}
-        inserted_epi = False
-        inserted_reproj = False
-        inserted_pose = False
-        for k, v in combined_summaries.items():
-            summaries[k] = v
-            if k == "mepi_prec@1e-3":
-                summaries["valid_pairs_epi"] = int(counts["valid_pairs_epi"])
-                inserted_epi = True
-            if k == "mreproj_prec@5px":
-                summaries["valid_pairs_reproj"] = int(counts["valid_pairs_reproj"])
-                inserted_reproj = True
-            if k == "mrel_pose_error":
-                summaries["valid_pairs_pose"] = int(counts["valid_pairs_pose"])
-                inserted_pose = True
-        if not inserted_epi:
-            summaries["valid_pairs_epi"] = int(counts["valid_pairs_epi"])
-        if not inserted_reproj:
-            summaries["valid_pairs_reproj"] = int(counts["valid_pairs_reproj"])
-        if not inserted_pose:
-            summaries["valid_pairs_pose"] = int(counts["valid_pairs_pose"])
+        summaries = {
+            **summaries,
+            **best_pose_results,
+        }
 
         figures = {
             "pose_recall": plot_cumulative(
