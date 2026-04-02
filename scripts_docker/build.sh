@@ -50,8 +50,9 @@ docker build -t gluefactory:cuda11.8 \
     --build-arg PYTORCH_INDEX_URL=https://download.pytorch.org/whl/cu118 \
     --build-arg CUDASIFT_CUDA_ARCHS=75 \
     --build-arg CUDASIFT_CUDA_ARCHS_SM=7.5 \
-    --no-cache \
     . 2>&1 | tee ./docker_build.log
+    
+    # --no-cache \
 
 
 # # DGX - ipastore - gluefactory-colon

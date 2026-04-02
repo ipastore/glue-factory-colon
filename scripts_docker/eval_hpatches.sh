@@ -11,7 +11,7 @@ docker run \
   -d \
   --rm \
   --gpus all \
-  --name eval \
+  --name eval_hpatches \
   --shm-size=50g \
   -v /home/student/.cache/matplotlib:/home/student/.cache/matplotlib \
   -v /home/student/.cache/torch:/home/student/.cache/torch \

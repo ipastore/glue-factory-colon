@@ -13,13 +13,32 @@ EXTRA_ARGS=("$@")
 
 # #region Superpoint Official
 # ################## Superpoint Official #################################
-# ## NN
+# ## NN-BI
 # run_eval "superpoint_official+nn" \
 #         model.extractor.name=gluefactory_nonfree.superpoint \
 #         model.extractor.max_num_keypoints=2048 \
 #         model.extractor.detection_threshold=0 \
 #         model.extractor.nms_radius=0 \
 #         model.matcher.name=nearest_neighbor_matcher
+
+# ## NN-BI-TH
+# run_eval "superpoint_official+nn_th" \
+#         model.extractor.name=gluefactory_nonfree.superpoint \
+#         model.extractor.max_num_keypoints=2048 \
+#         model.extractor.detection_threshold=0 \
+#         model.extractor.nms_radius=0 \
+#         model.matcher.name=nearest_neighbor_matcher \
+#         model.matcher.filter_threshold=0.9
+
+# ## NN-BI-TH-RATIO
+# run_eval "superpoint_official+nn_th_ratio" \
+#         model.extractor.name=gluefactory_nonfree.superpoint \
+#         model.extractor.max_num_keypoints=2048 \
+#         model.extractor.detection_threshold=0 \
+#         model.extractor.nms_radius=0 \
+#         model.matcher.name=nearest_neighbor_matcher \
+#         model.matcher.filter_threshold=0.9 \
+#         model.matcher.ratio_test_threshold=0.8
 
 # ## LG - Official
 # run_eval "superpoint_official+lightglue_official" \
@@ -61,7 +80,7 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 
 # #region SIFT_colmap
 # ################## SIFT_colmap #################################
-# ## NN
+# ## NN-BI
 # run_eval "sift_pycolmap+nn" \
 #       model.extractor.name=extractors.sift \
 #       model.extractor.backend=pycolmap_cuda \
@@ -80,6 +99,49 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #       model.extractor.filter_with_lowest_scale=false \
 #       model.extractor.random_topk=false \
 #       model.matcher.name=nearest_neighbor_matcher
+
+# ## NN-BI-TH
+# run_eval "sift_pycolmap+nn_th" \
+#       model.extractor.name=extractors.sift \
+#       model.extractor.backend=pycolmap_cuda \
+#       model.extractor.max_num_keypoints=4096 \
+#       model.extractor.detection_threshold=0.0066667 \
+#       model.extractor.rootsift=true \
+#       model.extractor.nms_radius=0 \
+#       model.extractor.first_octave=-1 \
+#       model.extractor.num_octaves=4 \
+#       model.extractor.init_blur=1.0 \
+#       model.extractor.force_num_keypoints=false \
+#       model.extractor.trainable=false \
+#       model.extractor.filter_kpts_with_wrapper=false \
+#       model.extractor.filter_with_scale_weighting=true \
+#       model.extractor.extractor_channel=grayscale \
+#       model.extractor.filter_with_lowest_scale=false \
+#       model.extractor.random_topk=false \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9
+
+# ## NN-BI-TH-RATIO
+# run_eval "sift_pycolmap+nn_th_ratio" \
+#       model.extractor.name=extractors.sift \
+#       model.extractor.backend=pycolmap_cuda \
+#       model.extractor.max_num_keypoints=4096 \
+#       model.extractor.detection_threshold=0.0066667 \
+#       model.extractor.rootsift=true \
+#       model.extractor.nms_radius=0 \
+#       model.extractor.first_octave=-1 \
+#       model.extractor.num_octaves=4 \
+#       model.extractor.init_blur=1.0 \
+#       model.extractor.force_num_keypoints=false \
+#       model.extractor.trainable=false \
+#       model.extractor.filter_kpts_with_wrapper=false \
+#       model.extractor.filter_with_scale_weighting=true \
+#       model.extractor.extractor_channel=grayscale \
+#       model.extractor.filter_with_lowest_scale=false \
+#       model.extractor.random_topk=false \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9 \
+#       model.matcher.ratio_test_threshold=0.8
 
 # ## 00-LG-Official
 # run_eval "00-sift_colmap+lg_official" \
@@ -178,7 +240,7 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 
 # #region SIFT_cudasift
 # ################## SIFT_cudasift #################################
-# ## NN
+# ## NN-BI
 # run_eval "sift_cudasift+nn" \
 #       model.extractor.name=extractors.sift \
 #       model.extractor.backend=py_cudasift \
@@ -197,6 +259,49 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #       model.extractor.filter_with_lowest_scale=false \
 #       model.extractor.random_topk=false \
 #       model.matcher.name=nearest_neighbor_matcher
+
+# ## NN-BI-TH
+# run_eval "sift_cudasift+nn_th" \
+#       model.extractor.name=extractors.sift \
+#       model.extractor.backend=py_cudasift \
+#       model.extractor.max_num_keypoints=4096 \
+#       model.extractor.detection_threshold=0.00000000001 \
+#       model.extractor.rootsift=true \
+#       model.extractor.nms_radius=0 \
+#       model.extractor.first_octave=-1 \
+#       model.extractor.num_octaves=4 \
+#       model.extractor.init_blur=1.0 \
+#       model.extractor.force_num_keypoints=false \
+#       model.extractor.trainable=false \
+#       model.extractor.filter_kpts_with_wrapper=false \
+#       model.extractor.filter_with_scale_weighting=true \
+#       model.extractor.extractor_channel=grayscale \
+#       model.extractor.filter_with_lowest_scale=false \
+#       model.extractor.random_topk=false \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9
+
+# ## NN-BI-TH-RATIO
+# run_eval "sift_cudasift+nn_th_ratio" \
+#       model.extractor.name=extractors.sift \
+#       model.extractor.backend=py_cudasift \
+#       model.extractor.max_num_keypoints=4096 \
+#       model.extractor.detection_threshold=0.00000000001 \
+#       model.extractor.rootsift=true \
+#       model.extractor.nms_radius=0 \
+#       model.extractor.first_octave=-1 \
+#       model.extractor.num_octaves=4 \
+#       model.extractor.init_blur=1.0 \
+#       model.extractor.force_num_keypoints=false \
+#       model.extractor.trainable=false \
+#       model.extractor.filter_kpts_with_wrapper=false \
+#       model.extractor.filter_with_scale_weighting=true \
+#       model.extractor.extractor_channel=grayscale \
+#       model.extractor.filter_with_lowest_scale=false \
+#       model.extractor.random_topk=false \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9 \
+#       model.matcher.ratio_test_threshold=0.8
 
 # ## LG-Official
 # run_eval "00-sift_cudasift+lg_official" \
@@ -297,18 +402,35 @@ run_eval "05-sift_cudasift+lg_ENDO" \
     model.matcher.depth_confidence=-1 \
     model.matcher.width_confidence=-1 \
     model.matcher.filter_threshold=0.1 \
-    checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_3D/checkpoint_best.tar
+    checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
 # ################## SIFT_cudasift #################################
 # #endregion
 
 # #region ALIKED-n16
 # ################## ALIKED-n16 #################################
-# # NN
+# # NN-BI
 # run_eval "aliked+nn" \
 #       model.extractor.name=extractors.aliked \
 #       model.extractor.max_num_keypoints=2048 \
 #       model.extractor.detection_threshold=0.0 \
 #       model.matcher.name=nearest_neighbor_matcher
+
+# # NN-BI-TH
+# run_eval "aliked+nn_th" \
+#       model.extractor.name=extractors.aliked \
+#       model.extractor.max_num_keypoints=2048 \
+#       model.extractor.detection_threshold=0.0 \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9
+
+# # NN-BI-TH-RATIO
+# run_eval "aliked+nn_th_ratio" \
+#       model.extractor.name=extractors.aliked \
+#       model.extractor.max_num_keypoints=2048 \
+#       model.extractor.detection_threshold=0.0 \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9 \
+#       model.matcher.ratio_test_threshold=0.8
 
 # #LG
 # run_eval "aliked+lightglue_official" \
@@ -337,12 +459,29 @@ run_eval "05-sift_cudasift+lg_ENDO" \
 
 # # #region DISK
 # ################## DISK #################################
-# # NN
+# # NN-BI
 # run_eval "disk+nn" \
 #       model.extractor.name=extractors.disk_kornia \
 #       model.extractor.max_num_keypoints=2048 \
 #       model.extractor.detection_threshold=0.0 \
 #       model.matcher.name=nearest_neighbor_matcher
+
+# # NN-BI-TH
+# run_eval "disk+nn_th" \
+#       model.extractor.name=extractors.disk_kornia \
+#       model.extractor.max_num_keypoints=2048 \
+#       model.extractor.detection_threshold=0.0 \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9
+
+# # NN-BI-TH-RATIO
+# run_eval "disk+nn_th_ratio" \
+#       model.extractor.name=extractors.disk_kornia \
+#       model.extractor.max_num_keypoints=2048 \
+#       model.extractor.detection_threshold=0.0 \
+#       model.matcher.name=nearest_neighbor_matcher \
+#       model.matcher.filter_threshold=0.9 \
+#       model.matcher.ratio_test_threshold=0.8
 # # LG
 # run_eval "disk+lightglue_official" \
 #       model.extractor.name=extractors.disk_kornia \
