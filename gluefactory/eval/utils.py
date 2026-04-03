@@ -252,7 +252,14 @@ def eval_homography_robust(data, pred, conf):
     est = estimator(data_)
     if est["success"]:
         M = est["M_0to1"]
-        error_r = homography_corner_error(M, H_gt, data["view0"]["image_size"]).item()
+        if not torch.isfinite(M).all():
+            error_r = float("inf")
+        else:
+            error_r = homography_corner_error(
+                M, H_gt, data["view0"]["image_size"]
+            ).item()
+            if not np.isfinite(error_r):
+                error_r = float("inf")
     else:
         error_r = float("inf")
 
@@ -284,8 +291,14 @@ def eval_homography_dlt(data, pred):
     except AssertionError:
         h_dlt = H_inf
 
-    error_dlt = homography_corner_error(h_dlt, H_gt, data["view0"]["image_size"])
+    if not torch.isfinite(h_dlt).all():
+        error_dlt = torch.tensor(float("inf"), device=H_gt.device)
+    else:
+        error_dlt = homography_corner_error(h_dlt, H_gt, data["view0"]["image_size"])
+        if not torch.isfinite(error_dlt):
+            error_dlt = torch.tensor(float("inf"), device=error_dlt.device)
     results["H_error_dlt"] = error_dlt.item()
+
     return results
 
 
