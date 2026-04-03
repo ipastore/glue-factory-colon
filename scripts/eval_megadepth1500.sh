@@ -11,58 +11,58 @@ run_eval() {
 EXTRA_ARGS=("$@")
 #endregion
 
-# #region Superpoint Official
-# ################## Superpoint Official #################################
-# ## NN-BI
-# run_eval "superpoint_official+nn" \
-#         model.extractor.name=gluefactory_nonfree.superpoint \
-#         model.extractor.max_num_keypoints=2048 \
-#         model.extractor.detection_threshold=0 \
-#         model.extractor.nms_radius=0 \
-#         model.matcher.name=nearest_neighbor_matcher
+#region Superpoint Official
+################## Superpoint Official #################################
+## NN-BI
+run_eval "superpoint_official+nn" \
+        model.extractor.name=gluefactory_nonfree.superpoint \
+        model.extractor.max_num_keypoints=2048 \
+        model.extractor.detection_threshold=0 \
+        model.extractor.nms_radius=0 \
+        model.matcher.name=nearest_neighbor_matcher
 
-# ## NN-BI-TH
-# run_eval "superpoint_official+nn_th" \
-#         model.extractor.name=gluefactory_nonfree.superpoint \
-#         model.extractor.max_num_keypoints=2048 \
-#         model.extractor.detection_threshold=0 \
-#         model.extractor.nms_radius=0 \
-#         model.matcher.name=nearest_neighbor_matcher \
-#         model.matcher.filter_threshold=0.9
+## NN-BI-TH
+run_eval "superpoint_official+nn_th" \
+        model.extractor.name=gluefactory_nonfree.superpoint \
+        model.extractor.max_num_keypoints=2048 \
+        model.extractor.detection_threshold=0 \
+        model.extractor.nms_radius=0 \
+        model.matcher.name=nearest_neighbor_matcher \
+        model.matcher.filter_threshold=0.7
 
-# ## NN-BI-TH-RATIO
-# run_eval "superpoint_official+nn_th_ratio" \
-#         model.extractor.name=gluefactory_nonfree.superpoint \
-#         model.extractor.max_num_keypoints=2048 \
-#         model.extractor.detection_threshold=0 \
-#         model.extractor.nms_radius=0 \
-#         model.matcher.name=nearest_neighbor_matcher \
-#         model.matcher.filter_threshold=0.9 \
-#         model.matcher.ratio_test_threshold=0.8
+## NN-BI-TH-RATIO
+run_eval "superpoint_official+nn_th_ratio" \
+        model.extractor.name=gluefactory_nonfree.superpoint \
+        model.extractor.max_num_keypoints=2048 \
+        model.extractor.detection_threshold=0 \
+        model.extractor.nms_radius=0 \
+        model.matcher.name=nearest_neighbor_matcher \
+        model.matcher.filter_threshold=0.7 \
+        model.matcher.ratio_test_threshold=0.7
 
-# ## LG - Official
-# run_eval "superpoint_official+lightglue_official" \
-#         model.extractor.name=gluefactory_nonfree.superpoint \
-#         model.extractor.max_num_keypoints=2048 \
-#         model.extractor.detection_threshold=0 \
-#         model.extractor.nms_radius=0 \
-#         model.matcher.name=matchers.lightglue_pretrained \
-#         model.matcher.features=superpoint \
-#         model.matcher.depth_confidence=-1 \
-#         model.matcher.width_confidence=-1 \
-#         model.matcher.filter_threshold=0.1 \
-# ## ROMA
-# run_eval \
-#     "superpoint_official+roma" \
-#     model.extractor.name=gluefactory_nonfree.superpoint \
-#     model.extractor.max_num_keypoints=2048 \
-#     model.extractor.detection_threshold=0.0 \
-#     model.extractor.nms_radius=0 \
-#     model.matcher.name=roma \
-#     model.matcher.sample_num_matches=0 \
-#     model.matcher.max_kp_error=3 \
-#     model.matcher_filter_threshold=0.05 \
-#     model.matcher.weights=indoor
+## LG - Official
+run_eval "superpoint_official+lightglue_official" \
+        model.extractor.name=gluefactory_nonfree.superpoint \
+        model.extractor.max_num_keypoints=2048 \
+        model.extractor.detection_threshold=0 \
+        model.extractor.nms_radius=0 \
+        model.matcher.name=matchers.lightglue_pretrained \
+        model.matcher.features=superpoint \
+        model.matcher.depth_confidence=-1 \
+        model.matcher.width_confidence=-1 \
+        model.matcher.filter_threshold=0.1 \
+## ROMA
+run_eval \
+    "superpoint_official+roma" \
+    model.extractor.name=gluefactory_nonfree.superpoint \
+    model.extractor.max_num_keypoints=2048 \
+    model.extractor.detection_threshold=0.0 \
+    model.extractor.nms_radius=0 \
+    model.matcher.name=roma \
+    model.matcher.sample_num_matches=0 \
+    model.matcher.max_kp_error=3 \
+    model.matcher_filter_threshold=0.05 \
+    model.matcher.weights=indoor
 
 run_eval "superpoint_official+lg_ENDO_HOMO" \
         model.extractor.name=gluefactory_nonfree.superpoint \
@@ -119,7 +119,7 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #       model.extractor.filter_with_lowest_scale=false \
 #       model.extractor.random_topk=false \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9
+#       model.matcher.filter_threshold=0.7
 
 # ## NN-BI-TH-RATIO
 # run_eval "sift_pycolmap+nn_th_ratio" \
@@ -140,8 +140,8 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #       model.extractor.filter_with_lowest_scale=false \
 #       model.extractor.random_topk=false \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9 \
-#       model.matcher.ratio_test_threshold=0.8
+#       model.matcher.filter_threshold=0.7 \
+#       model.matcher.ratio_test_threshold=0.7
 
 # ## 00-LG-Official
 # run_eval "00-sift_colmap+lg_official" \
@@ -279,7 +279,7 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #       model.extractor.filter_with_lowest_scale=false \
 #       model.extractor.random_topk=false \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9
+#       model.matcher.filter_threshold=0.7
 
 # ## NN-BI-TH-RATIO
 # run_eval "sift_cudasift+nn_th_ratio" \
@@ -300,8 +300,8 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #       model.extractor.filter_with_lowest_scale=false \
 #       model.extractor.random_topk=false \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9 \
-#       model.matcher.ratio_test_threshold=0.8
+#       model.matcher.filter_threshold=0.7 \
+#       model.matcher.ratio_test_threshold=0.7
 
 # ## LG-Official
 # run_eval "00-sift_cudasift+lg_official" \
@@ -379,32 +379,32 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #     model.matcher.filter_threshold=0.05 \
 #     model.matcher.weights=indoor
 
-## 05-LG_ENDO_HOMO
-run_eval "05-sift_cudasift+lg_ENDO" \
-    model.extractor.name=extractors.sift \
-    model.extractor.backend=py_cudasift \
-    model.extractor.max_num_keypoints=4096 \
-    model.extractor.detection_threshold=0.00000000001 \
-    model.extractor.rootsift=true \
-    model.extractor.nms_radius=0 \
-    model.extractor.first_octave=-1 \
-    model.extractor.num_octaves=4 \
-    model.extractor.init_blur=1.0 \
-    model.extractor.force_num_keypoints=false \
-    model.extractor.trainable=false \
-    model.extractor.filter_kpts_with_wrapper=false \
-    model.extractor.filter_with_scale_weighting=true \
-    model.extractor.extractor_channel=grayscale \
-    model.extractor.filter_with_lowest_scale=false \
-    model.extractor.random_topk=false \
-    model.matcher.name=matchers.lightglue \
-    model.matcher.features=sift \
-    model.matcher.depth_confidence=-1 \
-    model.matcher.width_confidence=-1 \
-    model.matcher.filter_threshold=0.1 \
-    checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
-# ################## SIFT_cudasift #################################
-# #endregion
+# ## 05-LG_ENDO_HOMO
+# run_eval "05-sift_cudasift+lg_ENDO_HOMO" \
+#     model.extractor.name=extractors.sift \
+#     model.extractor.backend=py_cudasift \
+#     model.extractor.max_num_keypoints=4096 \
+#     model.extractor.detection_threshold=0.00000000001 \
+#     model.extractor.rootsift=true \
+#     model.extractor.nms_radius=0 \
+#     model.extractor.first_octave=-1 \
+#     model.extractor.num_octaves=4 \
+#     model.extractor.init_blur=1.0 \
+#     model.extractor.force_num_keypoints=false \
+#     model.extractor.trainable=false \
+#     model.extractor.filter_kpts_with_wrapper=false \
+#     model.extractor.filter_with_scale_weighting=true \
+#     model.extractor.extractor_channel=grayscale \
+#     model.extractor.filter_with_lowest_scale=false \
+#     model.extractor.random_topk=false \
+#     model.matcher.name=matchers.lightglue \
+#     model.matcher.features=sift \
+#     model.matcher.depth_confidence=-1 \
+#     model.matcher.width_confidence=-1 \
+#     model.matcher.filter_threshold=0.1 \
+#     checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
+# # ################## SIFT_cudasift #################################
+# # #endregion
 
 # #region ALIKED-n16
 # ################## ALIKED-n16 #################################
@@ -421,7 +421,7 @@ run_eval "05-sift_cudasift+lg_ENDO" \
 #       model.extractor.max_num_keypoints=2048 \
 #       model.extractor.detection_threshold=0.0 \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9
+#       model.matcher.filter_threshold=0.7
 
 # # NN-BI-TH-RATIO
 # run_eval "aliked+nn_th_ratio" \
@@ -429,8 +429,8 @@ run_eval "05-sift_cudasift+lg_ENDO" \
 #       model.extractor.max_num_keypoints=2048 \
 #       model.extractor.detection_threshold=0.0 \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9 \
-#       model.matcher.ratio_test_threshold=0.8
+#       model.matcher.filter_threshold=0.7 \
+#       model.matcher.ratio_test_threshold=0.7
 
 # #LG
 # run_eval "aliked+lightglue_official" \
@@ -472,7 +472,7 @@ run_eval "05-sift_cudasift+lg_ENDO" \
 #       model.extractor.max_num_keypoints=2048 \
 #       model.extractor.detection_threshold=0.0 \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9
+#       model.matcher.filter_threshold=0.7
 
 # # NN-BI-TH-RATIO
 # run_eval "disk+nn_th_ratio" \
@@ -480,8 +480,8 @@ run_eval "05-sift_cudasift+lg_ENDO" \
 #       model.extractor.max_num_keypoints=2048 \
 #       model.extractor.detection_threshold=0.0 \
 #       model.matcher.name=nearest_neighbor_matcher \
-#       model.matcher.filter_threshold=0.9 \
-#       model.matcher.ratio_test_threshold=0.8
+#       model.matcher.filter_threshold=0.7 \
+#       model.matcher.ratio_test_threshold=0.7
 # # LG
 # run_eval "disk+lightglue_official" \
 #       model.extractor.name=extractors.disk_kornia \
