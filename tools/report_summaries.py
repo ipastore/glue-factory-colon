@@ -12,6 +12,9 @@ DEFAULT_BENCHMARK = "megadepth1500"
 DEFAULT_COLUMNS = {
     "megadepth1500": [
         "experiment",
+        "mextractor_time_ms",
+        "mmatcher_time_ms",
+        "mtotal_time_ms",
         "mepi_prec@1e-4",
         "mepi_prec@5e-4",
         "mepi_prec@1e-3",
@@ -34,6 +37,9 @@ DEFAULT_COLUMNS = {
     ],
     "endomapper_dense1500": [
         "experiment",
+        "mextractor_time_ms",
+        "mmatcher_time_ms",
+        "mtotal_time_ms",
         "mnum_matches",
         "mnum_keypoints",
         "mreproj_prec@1px",
@@ -49,6 +55,9 @@ DEFAULT_COLUMNS = {
     ],
     "hpatches": [
         "experiment",
+        "mextractor_time_ms",
+        "mmatcher_time_ms",
+        "mtotal_time_ms",
         "mprec@1px",
         "mprec@3px",
         "mnum_matches",
@@ -68,7 +77,6 @@ DEFAULT_COLUMNS = {
         "mransac_inl%",
     ],
 }
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(

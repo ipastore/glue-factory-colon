@@ -27,6 +27,8 @@ from .utils import (
 
 
 class HPatchesPipeline(EvalPipeline):
+    timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+
     default_conf = {
         "data": {
             "batch_size": 1,
@@ -67,6 +69,7 @@ class HPatchesPipeline(EvalPipeline):
         "line_matching_scores1",
         "keypoint_scores0",
         "keypoint_scores1",
+        *timing_keys,
     ]
 
     def _init(self, conf):
@@ -115,6 +118,9 @@ class HPatchesPipeline(EvalPipeline):
                 results_i = {**results_i, **eval_homography_dlt(data, pred)}
             else:
                 results_i = {}
+            for k in self.timing_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
             for th in test_thresholds:
                 pose_results_i = eval_homography_robust(
                     data,

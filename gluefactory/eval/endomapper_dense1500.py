@@ -25,6 +25,8 @@ from .utils import (
 
 
 class EndomapperDense1500Pipeline(EvalPipeline):
+    timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+
     default_conf = {
         "data": {
             "name": "posed_images",
@@ -61,7 +63,7 @@ class EndomapperDense1500Pipeline(EvalPipeline):
         "matching_scores0",
         "matching_scores1",
     ]
-    optional_export_keys = []
+    optional_export_keys = timing_keys
 
     @classmethod
     def get_dataloader(self, data_conf=None):
@@ -108,6 +110,9 @@ class EndomapperDense1500Pipeline(EvalPipeline):
             results_i["num_keypoints"] = 0.5 * (num_kpts0 + num_kpts1)
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
+            for k in self.timing_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
 
             for th in test_thresholds:
                 if num_matches < min_matches_for_pose:

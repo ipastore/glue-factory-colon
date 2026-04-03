@@ -11,6 +11,7 @@ that corresponds to the keypoint i in image 0. m0[i] = -1 if i is unmatched.
 """
 
 import math
+import time
 
 import torch
 from omegaconf import OmegaConf
@@ -69,15 +70,38 @@ class TwoViewPipeline(BaseModel):
                 to_ctr(conf.ground_truth)
             )
 
+    def _timing_tensor(self, batch_size, device, time_ms):
+        return torch.full(
+            (batch_size,), float(time_ms), device=device, dtype=torch.float32
+        )
+
+    def _time_call(self, device, fn):
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        start = time.perf_counter()
+        output = fn()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        return output, (time.perf_counter() - start) * 1e3
+
     def extract_view(self, data, i):
         data_i = data[f"view{i}"]
         pred_i = data_i.get("cache", {})
         skip_extract = len(pred_i) > 0 and self.conf.allow_no_extract
+        extract_time_ms = None
+        device = data_i["image"].device
         if self.conf.extractor.name and not skip_extract:
-            pred_i = {**pred_i, **self.extractor(data_i)}
+            extractor_pred, extract_time_ms = self._time_call(
+                device, lambda: self.extractor(data_i)
+            )
+            pred_i = {**pred_i, **extractor_pred}
         elif self.conf.extractor.name and not self.conf.allow_no_extract:
-            pred_i = {**pred_i, **self.extractor({**data_i, **pred_i})}
-        return pred_i
+            extractor_input = {**data_i, **pred_i}
+            extractor_pred, extract_time_ms = self._time_call(
+                device, lambda: self.extractor(extractor_input)
+            )
+            pred_i = {**pred_i, **extractor_pred}
+        return pred_i, extract_time_ms
 
     def _rotate_keypoints(self, kpts, center, angles):
         rel = kpts - center[:, None, :]
@@ -210,23 +234,50 @@ class TwoViewPipeline(BaseModel):
         return pred
 
     def _forward(self, data):
-        pred0 = self.extract_view(data, "0")
-        pred1 = self.extract_view(data, "1")
+        pred0, extract_time0 = self.extract_view(data, "0")
+        pred1, extract_time1 = self.extract_view(data, "1")
         pred = {
             **{k + "0": v for k, v in pred0.items()},
             **{k + "1": v for k, v in pred1.items()},
         }
+        extractor_time_ms = sum(
+            t for t in [extract_time0, extract_time1] if t is not None
+        )
+        has_extractor_time = extract_time0 is not None or extract_time1 is not None
 
         if self.conf.ground_truth.name and self.conf.run_gt_in_forward:
             gt_pred = self.ground_truth({**data, **pred})
             pred.update({f"gt_{k}": v for k, v in gt_pred.items()})
         pred = self._apply_keypoint_rotation(pred, data)
+        matcher_time_ms = None
+        device = data["view0"]["image"].device
+        batch_size = data["view0"]["image"].shape[0]
         if self.conf.matcher.name:
-            pred = {**pred, **self.matcher({**data, **pred})}
+            matcher_pred, matcher_time_ms = self._time_call(
+                device, lambda: self.matcher({**data, **pred})
+            )
+            pred = {**pred, **matcher_pred}
         if self.conf.filter.name:
             pred = {**pred, **self.filter({**data, **pred})}
         if self.conf.solver.name:
             pred = {**pred, **self.solver({**data, **pred})}
+        if has_extractor_time:
+            pred["extractor_time_ms"] = self._timing_tensor(
+                batch_size, device, extractor_time_ms
+            )
+            total_time_ms = extractor_time_ms
+            if matcher_time_ms is not None:
+                pred["matcher_time_ms"] = self._timing_tensor(
+                    batch_size, device, matcher_time_ms
+                )
+                total_time_ms += matcher_time_ms
+            pred["total_time_ms"] = self._timing_tensor(
+                batch_size, device, total_time_ms
+            )
+        elif matcher_time_ms is not None:
+            pred["total_time_ms"] = self._timing_tensor(
+                batch_size, device, matcher_time_ms
+            )
         return pred
 
     def loss(self, pred, data):

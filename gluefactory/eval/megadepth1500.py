@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 class MegaDepth1500Pipeline(EvalPipeline):
+    timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+
     default_conf = {
         "data": {
             "name": "posed_images",
@@ -64,7 +66,7 @@ class MegaDepth1500Pipeline(EvalPipeline):
         "matching_scores0",
         "matching_scores1",
     ]
-    optional_export_keys = []
+    optional_export_keys = timing_keys
 
     def _init(self, conf):
         if not (DATA_PATH / "megadepth1500").exists():
@@ -116,6 +118,9 @@ class MegaDepth1500Pipeline(EvalPipeline):
             results_i = eval_matches_epipolar(data, pred)
             if "depth" in data["view0"].keys():
                 results_i.update(eval_matches_depth(data, pred))
+            for k in self.timing_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
             for th in test_thresholds:
                 pose_results_i = eval_relative_pose_robust(
                     data,
