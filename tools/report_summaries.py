@@ -47,6 +47,26 @@ DEFAULT_COLUMNS = {
         "mransac_inl",
         "mransac_inl%",
     ],
+    "hpatches": [
+        "experiment",
+        "mprec@1px",
+        "mprec@3px",
+        "mnum_matches",
+        "mnum_keypoints",
+        "mgt_match_recall@3px",
+        "mgt_match_precision@3px",
+        "H_error_dlt@1px",
+        "H_error_dlt@3px",
+        "H_error_dlt@5px",
+        "H_error_ransac@1px",
+        "H_error_ransac@3px",
+        "H_error_ransac@5px",
+        "H_error_ransac_mAA",
+        "mH_error_dlt",
+        "mH_error_ransac",
+        "mransac_inl",
+        "mransac_inl%",
+    ],
 }
 
 

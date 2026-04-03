@@ -535,9 +535,9 @@ run_eval "roma_outdoor"  \
 #region Report generation
 #### Run report generation ######
 #txt
-python tools/report_summaries.py  --benchmark hpactches  --format plain --sort-by rel_pose_error_mAA --descending
+python tools/report_summaries.py  --benchmark hpatches  --format plain --sort-by H_error_ransac_mAA --descending
 #csv
-python tools/report_summaries.py  --benchmark hpatches  --format csv --sort-by rel_pose_error_mAA --descending
+python tools/report_summaries.py  --benchmark hpatches  --format csv --sort-by H_error_ransac_mAA --descending
 #md
-python tools/report_summaries.py  --benchmark hpatches  --format md --sort-by rel_pose_error_mAA --descending
+python tools/report_summaries.py  --benchmark hpatches  --format md --sort-by H_error_ransac_mAA --descending
 #endregion
