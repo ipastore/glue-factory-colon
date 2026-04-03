@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 class MegaDepth1500Pipeline(EvalPipeline):
     timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+    memory_keys = [
+        "extractor_memory_mb",
+        "matcher_memory_mb",
+        "forward_allocated_memory_mb",
+        "forward_reserved_memory_mb",
+    ]
+    context_keys = ["pair_resolution"]
 
     default_conf = {
         "data": {
@@ -66,7 +73,7 @@ class MegaDepth1500Pipeline(EvalPipeline):
         "matching_scores0",
         "matching_scores1",
     ]
-    optional_export_keys = timing_keys
+    optional_export_keys = timing_keys + memory_keys + context_keys
 
     def _init(self, conf):
         if not (DATA_PATH / "megadepth1500").exists():
@@ -121,6 +128,12 @@ class MegaDepth1500Pipeline(EvalPipeline):
             for k in self.timing_keys:
                 if k in pred:
                     results_i[k] = pred[k].item()
+            for k in self.memory_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
+            for k in self.context_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
             for th in test_thresholds:
                 pose_results_i = eval_relative_pose_robust(
                     data,
@@ -144,7 +157,8 @@ class MegaDepth1500Pipeline(EvalPipeline):
             arr = np.array(v)
             if not np.issubdtype(np.array(v).dtype, np.number):
                 continue
-            summaries[f"m{k}"] = round(np.median(arr), 3)
+            summaries[f"med_{k}"] = round(np.median(arr), 3)
+            summaries[f"mean_{k}"] = round(np.mean(arr), 3)
 
         best_pose_results, best_th = eval_poses(
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"

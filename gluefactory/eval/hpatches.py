@@ -28,6 +28,13 @@ from .utils import (
 
 class HPatchesPipeline(EvalPipeline):
     timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+    memory_keys = [
+        "extractor_memory_mb",
+        "matcher_memory_mb",
+        "forward_allocated_memory_mb",
+        "forward_reserved_memory_mb",
+    ]
+    context_keys = ["pair_resolution"]
 
     default_conf = {
         "data": {
@@ -70,6 +77,8 @@ class HPatchesPipeline(EvalPipeline):
         "keypoint_scores0",
         "keypoint_scores1",
         *timing_keys,
+        *memory_keys,
+        *context_keys,
     ]
 
     def _init(self, conf):
@@ -121,6 +130,12 @@ class HPatchesPipeline(EvalPipeline):
             for k in self.timing_keys:
                 if k in pred:
                     results_i[k] = pred[k].item()
+            for k in self.memory_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
+            for k in self.context_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
             for th in test_thresholds:
                 pose_results_i = eval_homography_robust(
                     data,
@@ -143,7 +158,8 @@ class HPatchesPipeline(EvalPipeline):
             arr = np.array(v)
             if not np.issubdtype(np.array(v).dtype, np.number):
                 continue
-            summaries[f"m{k}"] = round(np.median(arr), 3)
+            summaries[f"med_{k}"] = round(np.median(arr), 3)
+            summaries[f"mean_{k}"] = round(np.mean(arr), 3)
 
         auc_ths = [1, 3, 5]
         best_pose_results, best_th = eval_poses(

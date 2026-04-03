@@ -26,6 +26,13 @@ from .utils import (
 
 class EndomapperDense1500Pipeline(EvalPipeline):
     timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+    memory_keys = [
+        "extractor_memory_mb",
+        "matcher_memory_mb",
+        "forward_allocated_memory_mb",
+        "forward_reserved_memory_mb",
+    ]
+    context_keys = ["pair_resolution"]
 
     default_conf = {
         "data": {
@@ -63,7 +70,7 @@ class EndomapperDense1500Pipeline(EvalPipeline):
         "matching_scores0",
         "matching_scores1",
     ]
-    optional_export_keys = timing_keys
+    optional_export_keys = timing_keys + memory_keys + context_keys
 
     @classmethod
     def get_dataloader(self, data_conf=None):
@@ -113,6 +120,12 @@ class EndomapperDense1500Pipeline(EvalPipeline):
             for k in self.timing_keys:
                 if k in pred:
                     results_i[k] = pred[k].item()
+            for k in self.memory_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
+            for k in self.context_keys:
+                if k in pred:
+                    results_i[k] = pred[k].item()
 
             for th in test_thresholds:
                 if num_matches < min_matches_for_pose:
@@ -140,7 +153,12 @@ class EndomapperDense1500Pipeline(EvalPipeline):
             arr = np.array(v)
             if not np.issubdtype(np.array(v).dtype, np.number):
                 continue
-            summaries[f"m{k}"] = round(np.nanmean(arr), 3) if np.any(np.isfinite(arr)) else np.nan
+            if np.any(np.isfinite(arr)):
+                summaries[f"med_{k}"] = round(np.nanmedian(arr), 3)
+                summaries[f"mean_{k}"] = round(np.nanmean(arr), 3)
+            else:
+                summaries[f"med_{k}"] = np.nan
+                summaries[f"mean_{k}"] = np.nan
 
         best_pose_results, best_th = eval_poses(
             pose_results, auc_ths=[5, 10, 20], key="rel_pose_error"
