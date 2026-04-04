@@ -21,7 +21,7 @@ BASE_DATA_ARGS=(
 
 sp_official_common=(
     model.extractor.name=gluefactory_nonfree.superpoint
-    model.extractor.max_num_keypoints=2048
+    model.extractor.max_num_keypoints=1024
     model.extractor.detection_threshold=0
     model.extractor.nms_radius=0
 )
@@ -29,7 +29,7 @@ sp_official_common=(
 sift_pycolmap_common=(
     model.extractor.name=extractors.sift
     model.extractor.backend=pycolmap_cuda
-    model.extractor.max_num_keypoints=4096
+    model.extractor.max_num_keypoints=1024
     model.extractor.detection_threshold=0.0066667
     model.extractor.rootsift=true
     model.extractor.nms_radius=0
@@ -48,7 +48,7 @@ sift_pycolmap_common=(
 sift_cudasift_common=(
     model.extractor.name=extractors.sift
     model.extractor.backend=py_cudasift
-    model.extractor.max_num_keypoints=4096
+    model.extractor.max_num_keypoints=1024
     model.extractor.detection_threshold=0.00000000001
     model.extractor.rootsift=true
     model.extractor.nms_radius=0
@@ -66,13 +66,13 @@ sift_cudasift_common=(
 
 aliked_common=(
     model.extractor.name=extractors.aliked
-    model.extractor.max_num_keypoints=2048
+    model.extractor.max_num_keypoints=1024
     model.extractor.detection_threshold=0.0
 )
 
 disk_common=(
     model.extractor.name=extractors.disk_kornia
-    model.extractor.max_num_keypoints=2048
+    model.extractor.max_num_keypoints=1024
     model.extractor.detection_threshold=0.0
 )
 
@@ -283,14 +283,14 @@ run_eval "roma_indoor" \
     "${roma_common[@]}" \
     model.matcher.internal_hw=[518,518] \
     model.matcher.output_hw=[518,672] \
-    model.matcher.sample_num_matches=5000 \
+    model.matcher.sample_num_matches=1024 \
     model.matcher.weights=indoor
 
 run_eval "roma_outdoor" \
     "${roma_common[@]}" \
     model.matcher.internal_hw=[518,518] \
     model.matcher.output_hw=[518,672] \
-    model.matcher.sample_num_matches=5000 \
+    model.matcher.sample_num_matches=1024 \
     model.matcher.weights=outdoor
 #endregion
 

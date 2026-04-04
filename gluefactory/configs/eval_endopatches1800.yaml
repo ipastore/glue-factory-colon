@@ -7,10 +7,10 @@ benchmarks:
         test_sequences: [Seq_003, Seq_016]
         test_homography_levels: [0.3, 0.5, 0.7]
         test_photometric_levels: [0.25, 0.6, 0.95]
-        test_source_dir: endopatches1800_source_images
+        test_source_dir: null
         test_image_list: null
         save_dataset: False
-        read_dataset_from_disk: False
+        read_dataset_from_disk: True
         saved_dataset_dir: endopatches1800
       eval:
         estimator: poselib
