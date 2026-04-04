@@ -14,10 +14,15 @@ from ..utils.metrics import matcher_metrics
 
 @torch.no_grad()
 def find_nn(sim, ratio_thresh, distance_thresh):
-    sim_nn, ind_nn = sim.topk(2 if ratio_thresh else 1, dim=-1, largest=True)
+    num_candidates = sim.shape[-1]
+    if num_candidates == 0:
+        return sim.new_full(sim.shape[:-1], -1, dtype=torch.long)
+
+    topk = 2 if ratio_thresh and num_candidates > 1 else 1
+    sim_nn, ind_nn = sim.topk(topk, dim=-1, largest=True)
     dist_nn = 2 * (1 - sim_nn)
     mask = torch.ones(ind_nn.shape[:-1], dtype=torch.bool, device=sim.device)
-    if ratio_thresh:
+    if ratio_thresh and topk > 1:
         mask = mask & (dist_nn[..., 0] <= (ratio_thresh**2) * dist_nn[..., 1])
     if distance_thresh:
         mask = mask & (dist_nn[..., 0] <= distance_thresh**2)
@@ -26,6 +31,8 @@ def find_nn(sim, ratio_thresh, distance_thresh):
 
 
 def mutual_check(m0, m1):
+    if m0.shape[-1] == 0 or m1.shape[-1] == 0:
+        return m0, m1
     inds0 = torch.arange(m0.shape[-1], device=m0.device)
     inds1 = torch.arange(m1.shape[-1], device=m1.device)
     loop0 = torch.gather(m1, -1, torch.where(m0 > -1, m0, m0.new_tensor(0)))
