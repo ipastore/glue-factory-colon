@@ -13,6 +13,11 @@ data:
     right_view_difficulty: 0.7
     crop_vignette: True
     vignette_crop_coords: [81, 663, 55, 484]   # #w=582 h=429  . For images of 1350x1012: [276, 1076, 206, 806]  [x1, x2, y1, y2]; # width = 800, height = 600, aspect ≈ 4/3
+    save_dataset: True
+    read_dataset_from_disk: False
+    saved_dataset_dir: endopatches1800
+    test_source_dir: endopatches1800_source_images
+    test_image_list: null
     #Endomapper
 
     homography:
@@ -73,6 +78,25 @@ benchmarks:
       eval:
         estimator: opencv
         ransac_th: 0.5
+      model:
+        extractor:
+          nms_radius: 0
+    endopatches1800:
+      data:
+        num_workers: 1
+        test_size: 1800
+        test_seed: 0
+        test_sequences: [Seq_003, Seq_016]
+        test_homography_levels: [0.3, 0.5, 0.7]
+        test_photometric_levels: [0.25, 0.6, 0.95]
+        test_source_dir: endopatches1800_source_images
+        test_image_list: null
+        save_dataset: True
+        read_dataset_from_disk: False
+        saved_dataset_dir: endopatches1800
+      eval:
+        estimator: poselib
+        ransac_th: -1
       model:
         extractor:
           nms_radius: 0

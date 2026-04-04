@@ -127,11 +127,11 @@ class BaseAugmentation(object):
             self.compose = A.Compose
         if self.conf.dtype == "uint8":
             self.dtype = np.uint8
-            self.preprocess = A.FromFloat(always_apply=True, dtype="uint8")
-            self.postprocess = A.ToFloat(always_apply=True)
+            self.preprocess = A.FromFloat(dtype="uint8")
+            self.postprocess = A.ToFloat()
         elif self.conf.dtype == "float32":
             self.dtype = np.float32
-            self.preprocess = A.ToFloat(always_apply=True)
+            self.preprocess = A.ToFloat()
             self.postprocess = IdentityTransform()
         else:
             raise ValueError(f"Unsupported dtype {self.conf.dtype}")
@@ -141,7 +141,7 @@ class BaseAugmentation(object):
         """Child class overwrites this, setting up a list of transforms"""
         self.transforms = []
 
-    def __call__(self, image, return_tensor=False):
+    def __call__(self, image, return_tensor=False, seed=None):
         """image as HW or HWC"""
         if isinstance(image, torch.Tensor):
             image = image.cpu().detach().numpy()
@@ -153,7 +153,10 @@ class BaseAugmentation(object):
             order = [i for i, _ in enumerate(transforms)]
             np.random.shuffle(order)
             transforms = [transforms[i] for i in order]
-        transformed = self.compose(transforms, p=self.conf.p)(**data)
+        pipeline = self.compose(transforms, p=self.conf.p)
+        if seed is not None and hasattr(pipeline, "set_random_seed"):
+            pipeline.set_random_seed(seed)
+        transformed = pipeline(**data)
         if self.conf.verbose:
             print(replay_str(transformed["replay"]["transforms"]))
         transformed = self.postprocess(**transformed)

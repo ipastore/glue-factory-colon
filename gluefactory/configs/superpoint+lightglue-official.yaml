@@ -35,3 +35,26 @@ benchmarks:
         eval:
             estimator: opencv
             ransac_th: 1.0
+    endopatches1800:
+          data:
+            num_workers: 1
+            # For generating dataset 
+            test_size: 1800
+            test_seed: 0
+            test_sequences: [Seq_003, Seq_016]
+            test_homography_levels: [0.3, 0.5, 0.7]
+            test_photometric_levels: [0.25, 0.6, 0.95]
+            # For generating dataset
+            test_source_dir: null
+            # Fallback to read images from list to generate dataset
+            test_image_list: null
+            save_dataset:  False
+            # Read geberated dataset
+            read_dataset_from_disk: True
+            saved_dataset_dir: endopatches1800
+          eval:
+            estimator: poselib
+            ransac_th: -1
+          model:
+            extractor:
+              nms_radius: 0
