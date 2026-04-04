@@ -107,6 +107,15 @@ def match_keypoints_dense(
     img1 = data["view1"]["image"]
 
     def find_matches(kpts_q, kpts_t, warp, cert, q_hw, t_hw):
+        if kpts_q.shape[1] == 0:
+            matches = kpts_q.new_full(kpts_q.shape[:2], -1, dtype=torch.long)
+            scores = kpts_q.new_zeros(kpts_q.shape[:2])
+            return matches, scores
+        if kpts_t.shape[1] == 0:
+            matches = kpts_q.new_full(kpts_q.shape[:2], -1, dtype=torch.long)
+            scores = kpts_q.new_zeros(kpts_q.shape[:2])
+            return matches, scores
+
         # Normalize to [-1, 1] for grid sampling
         kpts_q = normalize_coords(kpts0, q_hw)
         kpts_q_to_t = grid_sample(warp.permute(0, 3, 1, 2), kpts_q[:, None])[
