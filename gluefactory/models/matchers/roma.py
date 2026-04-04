@@ -117,7 +117,7 @@ def match_keypoints_dense(
             return matches, scores
 
         # Normalize to [-1, 1] for grid sampling
-        kpts_q = normalize_coords(kpts0, q_hw)
+        kpts_q = normalize_coords(kpts_q, q_hw)
         kpts_q_to_t = grid_sample(warp.permute(0, 3, 1, 2), kpts_q[:, None])[
             :, :, 0
         ].permute(0, 2, 1)
