@@ -165,7 +165,7 @@ run_eval "02-sift_colmap+lg_MD_3D" \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
 
-run_eval "sift_colmap+04_lg_MD_3D_cudasift"
+run_eval "sift_colmap+04_lg_MD_3D_cudasift" \
     "${sift_pycolmap_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
@@ -222,19 +222,26 @@ run_eval "05-sift_cudasift+lg_ENDO_HOMO" \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
 
-run_eval "04-sift_cudasift+lg_MD_3D"
+run_eval "04-sift_cudasift+lg_MD_3D" \
     "${sift_cudasift_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
 
-run_eval "sift_cudasift+02_lg_MD_3D_pycolmap"
+run_eval "sift_cudasift+02_lg_MD_3D_pycolmap" \
     "${sift_cudasift_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
+
+run_eval "10-sift_cudasift+lg_ENDO_3D_SPARSE" \
+    "${sift_cudasift_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/10-sift_cudasift+lg_ENDO_3D_SPARSE/checkpoint_best.tar
 
 #endregion
 

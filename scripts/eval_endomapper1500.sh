@@ -211,6 +211,13 @@ run_eval "05-sift_cudasift+lg_ENDO_HOMO" \
     model.matcher.features=sift \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
+    
+run_eval "10-sift_cudasift+lg_ENDO_3D_SPARSE" \
+    "${sift_cudasift_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/10-sift_cudasift+lg_ENDO_3D_SPARSE/checkpoint_best.tar
 #endregion
 
 #region ALIKED-n16
