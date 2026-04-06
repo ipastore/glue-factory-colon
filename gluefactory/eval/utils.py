@@ -326,7 +326,8 @@ def eval_poses(pose_results, auc_ths, key, unit="°"):
         arr = np.array(v)
         if not np.issubdtype(np.array(v).dtype, np.number):
             continue
-        summaries[f"m{k}"] = round(np.median(arr), 3)
+        summaries[f"med_{k}"] = round(np.median(arr), 3)
+        summaries[f"mean_{k}"] = round(np.mean(arr), 3)
     return summaries, best_th
 
 
