@@ -210,7 +210,7 @@ run_eval "03-sift_cudasift+lg_OP_HOMO" \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/03-py_cudasift+lg_OP_HOMO/checkpoint_best.tar
 
-run_eval "sift_py_cudasift+roma" \
+run_eval "sift_cudasift+roma" \
     "${sift_cudasift_common[@]}" \
     "${roma_common[@]}" \
     model.matcher.weights=indoor
