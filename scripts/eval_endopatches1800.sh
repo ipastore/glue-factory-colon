@@ -166,6 +166,20 @@ run_eval "02-sift_colmap+lg_MD_3D" \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
 
+run_eval "sift_colmap+04_lg_MD_3D_cudasift"
+    "${sift_pycolmap_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
+
+run_eval "sift_colmap+03_lg_OP_HOMO_cudasift" \
+    "${sift_pycolmap_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/03-py_cudasift+lg_OP_HOMO/checkpoint_best.tar
+
 run_eval "sift_pycolmap+roma" \
     "${sift_pycolmap_common[@]}" \
     "${roma_common[@]}" \
@@ -216,6 +230,21 @@ run_eval "05-sift_cudasift+lg_ENDO_HOMO" \
     model.matcher.features=sift \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
+
+run_eval "04-sift_cudasift+lg_MD_3D"
+    "${sift_cudasift_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
+
+run_eval "sift_cudasift+02_lg_MD_3D_pycolmap"
+    "${sift_cudasift_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
+
 #endregion
 
 #region ALIKED-n16
@@ -274,7 +303,6 @@ run_eval "disk+roma" \
     "${disk_common[@]}" \
     "${roma_common[@]}" \
     model.matcher.internal_hw=[518,518] \
-    model.matcher.output_hw=[518,672] \
     model.matcher.weights=indoor
 #endregion
 
@@ -282,7 +310,6 @@ run_eval "disk+roma" \
 run_eval "roma_indoor" \
     "${roma_common[@]}" \
     model.matcher.internal_hw=[518,518] \
-    model.matcher.output_hw=[518,672] \
     model.matcher.sample_num_matches=1024 \
     model.matcher.weights=indoor
 

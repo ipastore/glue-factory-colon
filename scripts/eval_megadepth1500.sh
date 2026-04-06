@@ -159,6 +159,13 @@ run_eval "02-sift_colmap+lg_MD_3D" \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
 
+run_eval "sift_colmap+04_lg_MD_3D_cudasift"
+    "${sift_pycolmap_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
+
 run_eval "sift_pycolmap+roma" \
     "${sift_pycolmap_common[@]}" \
     "${roma_common[@]}" \
@@ -205,6 +212,21 @@ run_eval "05-sift_cudasift+lg_ENDO_HOMO" \
     model.matcher.features=sift \
     "${lg_common[@]}" \
     checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
+
+run_eval "04-sift_cudasift+lg_MD_3D"
+    "${sift_cudasift_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
+
+run_eval "sift_cudasift+02_lg_MD_3D_pycolmap"
+    "${sift_cudasift_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${lg_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
+
 #endregion
 
 #region ALIKED-n16
@@ -267,15 +289,25 @@ run_eval "disk+roma" \
 run_eval "roma_indoor" \
     "${roma_common[@]}" \
     model.matcher.internal_hw=[630,630] \
-    model.matcher.output_hw=[1344,1344] \
     model.matcher.sample_num_matches=5000 \
     model.matcher.weights=indoor
 
 run_eval "roma_outdoor" \
     "${roma_common[@]}" \
     model.matcher.internal_hw=[630,630] \
-    model.matcher.output_hw=[1344,1344] \
     model.matcher.sample_num_matches=5000 \
+    model.matcher.weights=outdoor
+
+run_eval "roma_indoor_2048" \
+    "${roma_common[@]}" \
+    model.matcher.internal_hw=[630,630] \
+    model.matcher.sample_num_matches=2048 \
+    model.matcher.weights=indoor
+
+run_eval "roma_outdoor_2048" \
+    "${roma_common[@]}" \
+    model.matcher.internal_hw=[630,630] \
+    model.matcher.sample_num_matches=2048 \
     model.matcher.weights=outdoor
 #endregion
 
