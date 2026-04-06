@@ -13,6 +13,8 @@ DEFAULT_COLUMNS = {
     "megadepth1500": [
         "experiment",
         "med_extractor_time_ms",
+        "med_extractor_core_time_ms",
+        "mean_extractor_core_time_ms",
         "med_matcher_time_ms",
         "med_total_time_ms",
         "med_extractor_memory_mb",
@@ -46,6 +48,8 @@ DEFAULT_COLUMNS = {
     "endomapper_dense1500": [
         "experiment",
         "med_extractor_time_ms",
+        "med_extractor_core_time_ms",
+        "mean_extractor_core_time_ms",
         "med_matcher_time_ms",
         "med_total_time_ms",
         "med_extractor_memory_mb",
@@ -72,6 +76,8 @@ DEFAULT_COLUMNS = {
     "hpatches": [
         "experiment",
         "med_extractor_time_ms",
+        "med_extractor_core_time_ms",
+        "mean_extractor_core_time_ms",
         "med_matcher_time_ms",
         "med_total_time_ms",
         "med_extractor_memory_mb",
@@ -103,6 +109,8 @@ DEFAULT_COLUMNS = {
     "endopatches1800": [
         "experiment",
         "med_extractor_time_ms",
+        "med_extractor_core_time_ms",
+        "mean_extractor_core_time_ms",
         "med_matcher_time_ms",
         "med_total_time_ms",
         "med_extractor_memory_mb",

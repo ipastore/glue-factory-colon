@@ -1,4 +1,5 @@
 from typing import Callable, Optional
+import time
 
 import torch
 import torch.nn.functional as F
@@ -768,11 +769,13 @@ class ALIKED(BaseModel):
 
     def _forward(self, data):
         image = data["image"]
+        core_start = time.perf_counter()
         feature_map, score_map = self.extract_dense_map(image)
         keypoints, kptscores, scoredispersitys = self.dkd(
             score_map, image_size=data.get("image_size")
         )
         descriptors, _ = self.desc_head(feature_map, keypoints)
+        core_time_ms = (time.perf_counter() - core_start) * 1e3
         if self.conf.filter_specular_keypoints and "specular_mask" in data:
             filtered_keypoints = []
             filtered_scores = []
@@ -812,6 +815,9 @@ class ALIKED(BaseModel):
             "keypoint_scores": torch.stack(kptscores),  # B N
             "score_dispersity": torch.stack(scoredispersitys),
             "score_map": score_map,  # Bx1xHxW
+            "extractor_core_time_ms": image.new_full(
+                (image.shape[0],), core_time_ms / image.shape[0]
+            ),
         }
 
     def loss(self, pred, data):

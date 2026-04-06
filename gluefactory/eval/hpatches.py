@@ -27,7 +27,12 @@ from .utils import (
 
 
 class HPatchesPipeline(EvalPipeline):
-    timing_keys = ["extractor_time_ms", "matcher_time_ms", "total_time_ms"]
+    timing_keys = [
+        "extractor_time_ms",
+        "extractor_core_time_ms",
+        "matcher_time_ms",
+        "total_time_ms",
+    ]
     memory_keys = [
         "extractor_memory_mb",
         "matcher_memory_mb",

@@ -1,4 +1,5 @@
 import logging
+import time
 import warnings
 
 import cv2
@@ -85,6 +86,12 @@ def run_opencv_sift(features: cv2.Feature2D, image: np.ndarray) -> np.ndarray:
     scales = np.array([k.size for k in detections], dtype=np.float32)
     angles = np.deg2rad(np.array([k.angle for k in detections], dtype=np.float32))
     return points, scores, scales, angles, descriptors
+
+
+def measure_time_ms(fn):
+    start = time.perf_counter()
+    out = fn()
+    return out, (time.perf_counter() - start) * 1e3
 
 
 class SIFT(BaseModel):
@@ -200,20 +207,33 @@ class SIFT(BaseModel):
     def extract_single_image(self, image: torch.Tensor, specular_mask: torch.Tensor = None):
         image_np = np.clip(image.cpu().numpy().squeeze(0), 0.0, 1.0)
 
+        core_time_ms = None
         if self.conf.backend.startswith("pycolmap"):
             if version.parse(pycolmap.__version__) >= version.parse("0.5.0"):
-                detections, descriptors = self.sift.extract(image_np)
+                (detections, descriptors), core_time_ms = measure_time_ms(
+                    lambda: self.sift.extract(image_np)
+                )
                 scores = None  # Scores are not exposed by COLMAP anymore.
             else:
-                detections, scores, descriptors = self.sift.extract(image_np)
+                (detections, scores, descriptors), core_time_ms = measure_time_ms(
+                    lambda: self.sift.extract(image_np)
+                )
                 scores = np.abs(scores)
                 logger.debug("Succesfully load scores!")
             keypoints = detections[:, :2]  # Keep only (x, y).
             scales, angles = detections[:, -2:].T
         elif self.conf.backend == "opencv":
             # TODO: Check if opencv keypoints are already in corner convention
-            keypoints, scores, scales, angles, descriptors = run_opencv_sift(
-                self.sift, (image_np * 255.0).astype(np.uint8)
+            (
+                keypoints,
+                scores,
+                scales,
+                angles,
+                descriptors,
+            ), core_time_ms = measure_time_ms(
+                lambda: run_opencv_sift(
+                    self.sift, (image_np * 255.0).astype(np.uint8)
+                )
             )
         elif self.conf.backend in {"py_cudasift", "py_Cudasift", "py_CudaSift"}:
             image_np = np.clip(image_np * 255.0, 0.0, 255.0)
@@ -222,14 +242,22 @@ class SIFT(BaseModel):
                 if self.conf.filter_kpts_with_wrapper
                 else 100000
             )
-            keypoints, scales, angles, scores, descriptors = cudasift_py.extract(
-                image_np.astype(np.float32, copy=False),
-                num_octaves=self.conf.num_octaves,
-                init_blur=float(self.conf.init_blur),
-                thresh=self.conf.detection_threshold,
-                lowest_scale=float(self.conf.first_octave),
-                max_pts=max_pts,
-                #edge_threshold is hardoceded at 10 inside CudaSift
+            (
+                keypoints,
+                scales,
+                angles,
+                scores,
+                descriptors,
+            ), core_time_ms = measure_time_ms(
+                lambda: cudasift_py.extract(
+                    image_np.astype(np.float32, copy=False),
+                    num_octaves=self.conf.num_octaves,
+                    init_blur=float(self.conf.init_blur),
+                    thresh=self.conf.detection_threshold,
+                    lowest_scale=float(self.conf.first_octave),
+                    max_pts=max_pts,
+                    #edge_threshold is hardoceded at 10 inside CudaSift
+                )
             )
             keypoints = keypoints + 0.5         # Keypoints are not in corner convention in CudaSift
             angles = np.deg2rad(angles)
@@ -384,6 +412,7 @@ class SIFT(BaseModel):
 
         pred["num_keypoints_detected"] = torch.tensor(detected_keypoints)
         pred["num_keypoints_padded"] = torch.tensor(padded_keypoints)
+        pred["extractor_core_time_ms"] = torch.tensor(core_time_ms, dtype=torch.float32)
         logger.debug(
             "SIFT [%s]: detected=%d, padded=%d",
             self.conf.backend, detected_keypoints, padded_keypoints,

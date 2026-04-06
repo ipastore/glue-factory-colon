@@ -106,6 +106,7 @@ class TwoViewPipeline(BaseModel):
         pred_i = data_i.get("cache", {})
         skip_extract = len(pred_i) > 0 and self.conf.allow_no_extract
         extract_time_ms = None
+        extract_core_time_ms = None
         extract_memory_mb = None
         extract_allocated_peak_mb = None
         extract_reserved_peak_mb = None
@@ -119,6 +120,8 @@ class TwoViewPipeline(BaseModel):
                 extract_allocated_peak_mb,
                 extract_reserved_peak_mb,
             ) = self._profile_call(device, extractor_fn)
+            if "extractor_core_time_ms" in extractor_pred:
+                extract_core_time_ms = extractor_pred.pop("extractor_core_time_ms")
             pred_i = {**pred_i, **extractor_pred}
         elif self.conf.extractor.name and not self.conf.allow_no_extract:
             extractor_input = {**data_i, **pred_i}
@@ -130,10 +133,13 @@ class TwoViewPipeline(BaseModel):
                 extract_allocated_peak_mb,
                 extract_reserved_peak_mb,
             ) = self._profile_call(device, extractor_fn)
+            if "extractor_core_time_ms" in extractor_pred:
+                extract_core_time_ms = extractor_pred.pop("extractor_core_time_ms")
             pred_i = {**pred_i, **extractor_pred}
         return (
             pred_i,
             extract_time_ms,
+            extract_core_time_ms,
             extract_memory_mb,
             extract_allocated_peak_mb,
             extract_reserved_peak_mb,
@@ -272,12 +278,22 @@ class TwoViewPipeline(BaseModel):
     def _forward(self, data):
         device = data["view0"]["image"].device
         batch_size = data["view0"]["image"].shape[0]
-        pred0, extract_time0, extract_memory0, extract_allocated0, extract_reserved0 = (
-            self.extract_view(data, "0")
-        )
-        pred1, extract_time1, extract_memory1, extract_allocated1, extract_reserved1 = (
-            self.extract_view(data, "1")
-        )
+        (
+            pred0,
+            extract_time0,
+            extract_core_time0,
+            extract_memory0,
+            extract_allocated0,
+            extract_reserved0,
+        ) = self.extract_view(data, "0")
+        (
+            pred1,
+            extract_time1,
+            extract_core_time1,
+            extract_memory1,
+            extract_allocated1,
+            extract_reserved1,
+        ) = self.extract_view(data, "1")
         pred = {
             **{k + "0": v for k, v in pred0.items()},
             **{k + "1": v for k, v in pred1.items()},
@@ -286,6 +302,12 @@ class TwoViewPipeline(BaseModel):
             t for t in [extract_time0, extract_time1] if t is not None
         )
         has_extractor_time = extract_time0 is not None or extract_time1 is not None
+        extractor_core_time_ms = None
+        if extract_core_time0 is not None or extract_core_time1 is not None:
+            extractor_core_time_ms = 0
+            for t in [extract_core_time0, extract_core_time1]:
+                if t is not None:
+                    extractor_core_time_ms += t
         extractor_memory_mb = sum(
             m for m in [extract_memory0, extract_memory1] if m is not None
         )
@@ -343,6 +365,8 @@ class TwoViewPipeline(BaseModel):
             pred["extractor_time_ms"] = self._metric_tensor(
                 batch_size, device, extractor_time_ms
             )
+            if extractor_core_time_ms is not None:
+                pred["extractor_core_time_ms"] = extractor_core_time_ms
             total_time_ms = extractor_time_ms
             if matcher_time_ms is not None:
                 pred["matcher_time_ms"] = self._metric_tensor(

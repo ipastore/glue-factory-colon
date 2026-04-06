@@ -8,6 +8,7 @@ available under the MIT license.
 
 from collections import OrderedDict
 from pathlib import Path
+import time
 from types import SimpleNamespace
 
 import torch
@@ -127,6 +128,7 @@ class SuperPoint(BaseModel):
         if image.shape[1] == 3:  # RGB
             scale = image.new_tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1)
             image = (image * scale).sum(1, keepdim=True)
+        core_start = time.perf_counter()
         features = self.backbone(image)
         descriptors_dense = torch.nn.functional.normalize(
             self.descriptor(features), p=2, dim=1
@@ -141,6 +143,7 @@ class SuperPoint(BaseModel):
             b, h * self.stride, w * self.stride
         )
         scores = batched_nms(scores, self.conf.nms_radius)
+        core_time_ms = (time.perf_counter() - core_start) * 1e3
 
         # Discard keypoints near the image borders
         if self.conf.remove_borders:
@@ -219,6 +222,9 @@ class SuperPoint(BaseModel):
             "keypoints": keypoints + 0.5,
             "keypoint_scores": scores,
             "descriptors": desc.transpose(-1, -2),
+            "extractor_core_time_ms": image.new_full(
+                (image.shape[0],), core_time_ms / image.shape[0]
+            ),
         }
         if self.conf.dense_outputs:
             pred["dense_descriptors"] = descriptors_dense

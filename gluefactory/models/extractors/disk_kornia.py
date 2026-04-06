@@ -1,4 +1,5 @@
 import kornia
+import time
 import torch
 
 from ..base_model import BaseModel
@@ -58,7 +59,9 @@ class DISK(BaseModel):
         if self.conf.dense_outputs:
             dense_descriptors = []
         chunk = self.conf.chunk
+        core_time_ms = 0.0
         for i in range(0, image.shape[0], chunk):
+            start = time.perf_counter()
             if self.conf.dense_outputs:
                 features, d_descriptors = self._get_dense_outputs(
                     image[i : min(image.shape[0], i + chunk)]
@@ -72,6 +75,7 @@ class DISK(BaseModel):
                     score_threshold=self.conf.detection_threshold,
                     pad_if_not_divisible=self.conf.pad_if_not_divisible,
                 )
+            core_time_ms += (time.perf_counter() - start) * 1e3
             keypoints += [f.keypoints for f in features]
             scores += [f.detection_scores for f in features]
             descriptors += [f.descriptors for f in features]
@@ -124,6 +128,9 @@ class DISK(BaseModel):
             "keypoints": keypoints.to(image) + 0.5,
             "keypoint_scores": scores.to(image),
             "descriptors": descriptors.to(image),
+            "extractor_core_time_ms": image.new_full(
+                (image.shape[0],), core_time_ms / image.shape[0]
+            ),
         }
         if self.conf.dense_outputs:
             pred["dense_descriptors"] = torch.cat(dense_descriptors, 0)
