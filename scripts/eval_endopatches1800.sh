@@ -96,18 +96,21 @@ roma_common=(
 #region Superpoint Official
 run_eval "superpoint_official+nn" \
     "${sp_official_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher
+    model.matcher.name=nearest_neighbor_matcher \
+    model.matcher.mutual_check=True
 
 run_eval "superpoint_official+nn_th" \
     "${sp_official_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7
 
 run_eval "superpoint_official+nn_th_ratio" \
     "${sp_official_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7 \
-    model.matcher.ratio_test_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
 
 run_eval "superpoint_official+lightglue_official" \
     "${sp_official_common[@]}" \
@@ -133,18 +136,21 @@ run_eval "superpoint_official+lg_ENDO_HOMO" \
 #region SIFT_colmap
 run_eval "sift_pycolmap+nn" \
     "${sift_pycolmap_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher
+    model.matcher.name=nearest_neighbor_matcher \
+    model.matcher.mutual_check=True
 
 run_eval "sift_pycolmap+nn_th" \
     "${sift_pycolmap_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7
 
 run_eval "sift_pycolmap+nn_th_ratio" \
     "${sift_pycolmap_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7 \
-    model.matcher.ratio_test_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
 
 run_eval "00-sift_colmap+lg_official" \
     "${sift_pycolmap_common[@]}" \
@@ -191,18 +197,21 @@ run_eval "sift_pycolmap+roma" \
 #region SIFT_cudasift
 run_eval "sift_cudasift+nn" \
     "${sift_cudasift_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher
+    model.matcher.name=nearest_neighbor_matcher \
+    model.matcher.mutual_check=True
 
 run_eval "sift_cudasift+nn_th" \
     "${sift_cudasift_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7
 
 run_eval "sift_cudasift+nn_th_ratio" \
     "${sift_cudasift_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7 \
-    model.matcher.ratio_test_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
 
 run_eval "00-sift_cudasift+lg_official" \
     "${sift_cudasift_common[@]}" \
@@ -250,18 +259,21 @@ run_eval "sift_cudasift+02_lg_MD_3D_pycolmap"
 #region ALIKED-n16
 run_eval "aliked+nn" \
     "${aliked_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher
+    model.matcher.name=nearest_neighbor_matcher \
+    model.matcher.mutual_check=True
 
 run_eval "aliked+nn_th" \
     "${aliked_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7
 
 run_eval "aliked+nn_th_ratio" \
     "${aliked_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7 \
-    model.matcher.ratio_test_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
 
 run_eval "aliked+lightglue_official" \
     "${aliked_common[@]}" \
@@ -280,18 +292,21 @@ run_eval "aliked+roma" \
 #region DISK
 run_eval "disk+nn" \
     "${disk_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher
+    model.matcher.name=nearest_neighbor_matcher \
+    model.matcher.mutual_check=True
 
 run_eval "disk+nn_th" \
     "${disk_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7
 
 run_eval "disk+nn_th_ratio" \
     "${disk_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.filter_threshold=0.7 \
-    model.matcher.ratio_test_threshold=0.7
+    model.matcher.mutual_check=True \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
 
 run_eval "disk+lightglue_official" \
     "${disk_common[@]}" \
