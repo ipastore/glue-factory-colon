@@ -443,10 +443,12 @@ class SIFT(BaseModel):
             specular_mask_k = None
             if "image_size" in data.keys():
                 # avoid extracting points in padded areas
-                if len(data["image_size"].shape):
-                    w, h = data["image_size"][0][k]
-                else: 
+                if data["image_size"].ndim == 1:
+                    w, h = data["image_size"]
+                elif data["image_size"].ndim == 2:
                     w, h = data["image_size"][k]
+                else:
+                    w, h = data["image_size"][0][k]
                 w, h = int(w), int(h)
                 img = img[:, :h, :w]
                 if specular_mask is not None:
