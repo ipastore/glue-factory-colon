@@ -56,6 +56,11 @@ def _log_error_distribution(
                     f"counts_gt_thresholds(px) {thresholds}: {counts_gt.tolist()}",
                 )
 
+#TODO gt_matches_from_roma
+
+@torch.no_grad()
+def  gt_matches_from_roma():
+    raise NotImplementedError("GT matches from ROMA not implemented yet.")
 
 @torch.no_grad()
 def gt_matches_from_pose_sparse_dense_map(
