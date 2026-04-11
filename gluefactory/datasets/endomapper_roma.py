@@ -202,12 +202,28 @@ class _PairDataset(torch.utils.data.Dataset):
         valid = np.ones(len_images, dtype=bool)
         
         if self.conf.read_image:
-            image_exists = np.fromiter(
-                ((self.root / self.seq[seq_map] / "output" / "3D_maps" / self.map_id[seq_map] / "keyframes" / f"Keyframe_{str(image_name)}.png").exists() for image_name in self.image_names[seq_map]),
-                dtype=bool,
-                count=len_images,
+            keyframes_dir = (
+                self.root
+                / self.seq[seq_map]
+                / "output"
+                / "3D_maps"
+                / self.map_id[seq_map]
+                / "keyframes"
             )
-            valid &= image_exists
+            image_valid = []
+            for image_name in self.image_names[seq_map]:
+                image_path = keyframes_dir / f"Keyframe_{str(image_name)}.png"
+                if not image_path.exists():
+                    image_valid.append(False)
+                    continue
+                try:
+                    with PIL.Image.open(image_path) as image:
+                        image.verify()
+                except Exception:
+                    image_valid.append(False)
+                    continue
+                image_valid.append(True)
+            valid &= np.asarray(image_valid, dtype=bool)
         # if self.conf.read_depth:
         #     depth_exists = np.fromiter(
         #         ((self.root / str(path)).exists() for path in self.depths[seq_map]),
@@ -275,7 +291,7 @@ class _PairDataset(torch.utils.data.Dataset):
                     )
                 
                 image_names = self.image_names[seq_map]
-                ids = [(seq_map, name) for name in image_names]
+                ids = [(seq_map, image_names[i]) for i in ids]
                 self.items.extend(ids)
         else:
             for seq_map in self.seqs_maps:
