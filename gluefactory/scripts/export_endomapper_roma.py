@@ -134,8 +134,17 @@ def _read_seq_maps(args) -> list[str]:
         return list(args.seq_maps)
     split_path = Path(args.split_file)
     split_path = SEQ_LISTS_PATH / split_path
-    lines = [l.strip() for l in split_path.read_text().splitlines() if l.strip()]
-    return lines
+    seqs = [l.strip() for l in split_path.read_text().splitlines() if l.strip()]
+
+    npz_dir = Path(DATA_PATH, "slam-results_long_sequences_ENE26", "processed_npz")
+    seq_maps = []
+    for seq in seqs:
+        matches = sorted(npz_dir.glob(f"{seq}_map*.npz"))
+        if matches:
+            seq_maps.extend(p.stem for p in matches)
+        else:
+            seq_maps.append(seq)
+    return seq_maps
 
 
 # def _load_scale_by_image(scene_info_path: Path) -> dict[str, float]:
@@ -177,6 +186,7 @@ def run_export(feature_file: Path, seq_map: str, args):
             "num_workers": args.num_workers,
             # "read_depth": True,
             "read_image": True,
+            "min_images_per_map": 1,
             "train_split": [seq_map],
             "train_num_per_scene": None,
         },
@@ -225,3 +235,4 @@ if __name__ == "__main__":
             continue
         logging.info("Export local features for seq_map %s", seq_map)
         run_export(feature_file, seq_map, args)
+    print("DONE")

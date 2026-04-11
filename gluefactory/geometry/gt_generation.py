@@ -56,11 +56,112 @@ def _log_error_distribution(
                     f"counts_gt_thresholds(px) {thresholds}: {counts_gt.tolist()}",
                 )
 
-#TODO gt_matches_from_roma
-
 @torch.no_grad()
-def  gt_matches_from_roma():
-    raise NotImplementedError("GT matches from ROMA not implemented yet.")
+def gt_matches_from_roma(kp0, kp1, data=None, **kw):
+    if kp0.shape[1] == 0 or kp1.shape[1] == 0:
+        b_size, n_kp0 = kp0.shape[:2]
+        n_kp1 = kp1.shape[1]
+        assignment = torch.zeros(
+            b_size, n_kp0, n_kp1, dtype=torch.bool, device=kp0.device
+        )
+        m0 = -torch.ones_like(kp0[:, :, 0]).long()
+        m1 = -torch.ones_like(kp1[:, :, 0]).long()
+        reward = torch.zeros_like(assignment, dtype=torch.float32)
+        z0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
+        z1 = torch.zeros(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
+        return {
+            "assignment": assignment,
+            "reward": reward,
+            "matches0": m0,
+            "matches1": m1,
+            "matching_scores0": (m0 > -1).float(),
+            "matching_scores1": (m1 > -1).float(),
+            "mask_pos_3d_map0": z0,
+            "mask_pos_3d_map1": z1,
+            "mask_pos_reproj0": z0,
+            "mask_pos_reproj1": z1,
+            "mask_neg_reproj0": z0,
+            "mask_neg_reproj1": z1,
+            "mask_neg_epi0": z0,
+            "mask_neg_epi1": z1,
+        }
+
+    if "matches0" not in kw or "matches1" not in kw:
+        raise ValueError("gt_matches_from_roma requires matches0 and matches1.")
+
+    matches0 = kw["matches0"].long()
+    matches1 = kw["matches1"].long()
+    scores0 = kw.get("matching_scores0")
+    scores1 = kw.get("matching_scores1")
+    valid0 = kw.get("valid0")
+    valid1 = kw.get("valid1")
+
+    if scores0 is None or scores1 is None:
+        raise ValueError(
+            "gt_matches_from_roma requires matching_scores0 and matching_scores1."
+        )
+    if valid0 is None or valid1 is None:
+        raise ValueError("gt_matches_from_roma requires valid0 and valid1.")
+
+    n0, n1 = kp0.shape[1], kp1.shape[1]
+    valid_match0 = (matches0 >= 0) & valid0
+    valid_match1 = (matches1 >= 0) & valid1
+
+    assignment = torch.zeros(
+        kp0.shape[0], n0, n1, dtype=torch.bool, device=kp0.device
+    )
+    assignment.scatter_(
+        2,
+        matches0.clamp(min=0).unsqueeze(-1),
+        valid_match0.unsqueeze(-1),
+    )
+    assignment = assignment & valid0.unsqueeze(-1) & valid1.unsqueeze(-2)
+
+    unmatched = kp0.new_tensor(UNMATCHED_FEATURE, dtype=torch.long)
+    ignore = kp0.new_tensor(IGNORE_FEATURE, dtype=torch.long)
+
+    m0 = torch.full(kp0.shape[:2], ignore, device=kp0.device, dtype=torch.long)
+    m1 = torch.full(kp1.shape[:2], ignore, device=kp1.device, dtype=torch.long)
+
+    m0 = torch.where(valid0, unmatched, m0)
+    m1 = torch.where(valid1, unmatched, m1)
+    m0 = torch.where(valid_match0, matches0, m0)
+    m1 = torch.where(valid_match1, matches1, m1)
+
+    out_scores0 = torch.where(
+        m0 > -1, scores0.to(dtype=kp0.dtype), torch.zeros_like(scores0, dtype=kp0.dtype)
+    )
+    out_scores1 = torch.where(
+        m1 > -1, scores1.to(dtype=kp1.dtype), torch.zeros_like(scores1, dtype=kp1.dtype)
+    )
+
+    reward = assignment.float()
+       
+    reward = reward * scores0.to(dtype=reward.dtype).unsqueeze(-1)
+
+    pos0 = assignment.any(-1)
+    pos1 = assignment.any(-2)
+    neg0 = valid0 & ~pos0
+    neg1 = valid1 & ~pos1
+    z0 = torch.zeros_like(valid0)
+    z1 = torch.zeros_like(valid1)
+
+    return {
+        "assignment": assignment,
+        "reward": reward,
+        "matches0": m0,
+        "matches1": m1,
+        "matching_scores0": out_scores0,
+        "matching_scores1": out_scores1,
+        "mask_pos_3d_map0": z0,    # Compatibility with gt_matches_from_pose_sparse_dense_map
+        "mask_pos_3d_map1": z1,    # Compatibility with gt_matches_from_pose_sparse_dense_map
+        "mask_pos_reproj0": pos0,
+        "mask_pos_reproj1": pos1,
+        "mask_neg_reproj0": neg0,
+        "mask_neg_reproj1": neg1,
+        "mask_neg_epi0": z0,       # Compatibility with gt_matches_from_pose_sparse_dense_map
+        "mask_neg_epi1": z1,       # Compatibility with gt_matches_from_pose_sparse_dense_map
+    }
 
 @torch.no_grad()
 def gt_matches_from_pose_sparse_dense_map(

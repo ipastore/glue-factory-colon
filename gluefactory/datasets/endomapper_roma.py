@@ -14,13 +14,14 @@ import torch
 from omegaconf import OmegaConf
 
 from ..geometry.wrappers import Camera, Pose
+from ..models.cache_loader import CacheLoader
 from ..settings import DATA_PATH
 from ..utils.image import load_image
 from ..utils.tools import fork_rng
 from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
-from .utils import scale_intrinsics
-from ..models.utils.misc import pad_to_length
+from .utils import rotate_intrinsics, rotate_pose_inplane, scale_intrinsics
+
 
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,11 @@ class EndomapperRoma(BaseDataset):
         "grayscale": False,
         "min_images_per_map": 10,
         # "min_3D_points_per_map": 50
+        "load_features": {
+            "do": False,
+            **CacheLoader.default_conf,
+            "collate": False,
+        },
     }
 
     def _init(self, conf):
@@ -103,6 +109,10 @@ class _PairDataset(torch.utils.data.Dataset):
         seqs_maps = []
         npz_dir = self.root / self.conf.npz_subpath
         for seq in seqs:
+            direct_npz = npz_dir / f"{seq}.npz"
+            if direct_npz.exists():
+                seqs_maps.append(direct_npz.stem)
+                continue
             matching_files = sorted(npz_dir.glob(f"{seq}_map*.npz"))
             if not matching_files:
                 logger.warning(f"No maps found for sequence {seq} in {npz_dir}")
@@ -113,6 +123,8 @@ class _PairDataset(torch.utils.data.Dataset):
         
         logger.info(f"Found {len(seqs_maps)} maps from {len(seqs)} sequences for {split} split")
 
+        if conf.load_features.do:
+            self.feature_loader = CacheLoader(conf.load_features)
 
         self.seq: Dict[str, str] = {}
         self.map_id: Dict[str, str] = {}
@@ -332,91 +344,12 @@ class _PairDataset(torch.utils.data.Dataset):
     def _read_view(self, seq_map, image_name):
         
         image_names = self.image_names[seq_map]
-        idx = np.where(image_names == image_name)[0]
+        idx = int(np.where(image_names == image_name)[0][0])
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=True)
         camera = self._load_camera(seq_map, idx)
 
-        # path = self.root / self.conf.npz_subpath / f"{seq_map}.npz"
-        # try:
-        #     data_npz = np.load(str(path), allow_pickle=True)
-        # except Exception:
-        #     logger.error(
-        #         "Failed to open NPZ: path=%s seq_map=%s image_name=%s idx=%d",
-        #         path,
-        #         seq_map,
-        #         image_name,
-        #         idx,
-        #         exc_info=True,
-        #     )
-        #     try:
-        #         with zipfile.ZipFile(path) as zf:
-        #             bad_member = zf.testzip()
-        #         if bad_member:
-        #             logger.error("zipfile.testzip() bad member: %s", bad_member)
-        #         else:
-        #             logger.error("zipfile.testzip() did not find bad members.")
-        #     except Exception as zip_error:
-        #         logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
-        #     worker_info = torch.utils.data.get_worker_info()
-        #     if worker_info is not None:
-        #         try:
-        #             os.killpg(os.getpgrp(), signal.SIGINT)
-        #         except Exception as kill_error:
-        #             logger.error("Failed to signal process group: %s", kill_error)
-        #         os._exit(1)
-        #     raise SystemExit(1)
-
-        # try:
-        #     with data_npz:
-                # sparse_depth = torch.from_numpy(data_npz["depths_per_image"][idx]).float()
-                # keypoints = torch.from_numpy(data_npz["keypoints_per_image"][idx]).float()
-                # descriptors = torch.from_numpy(data_npz["descriptors_per_image"][idx]).float()
-                # scales = torch.from_numpy(data_npz["scales_per_image"][idx]).float()
-                # orientations = torch.from_numpy(data_npz["orientations_per_image"][idx]).float()
-                # orientations = orientations * (torch.pi / 180.0)
-                # point3D_ids = torch.from_numpy(data_npz["point3D_ids_per_image"][idx])
-                # valid_depth_mask = torch.from_numpy(data_npz["valid_depth_mask_per_image"][idx]).bool()
-                # valid_3D_mask = torch.from_numpy(data_npz["valid_3d_mask_per_image"][idx]).bool()
-                # keypoint_scores = (
-                #     torch.from_numpy(np.abs(data_npz["scores_per_image"][idx])).float()
-                #     * scales
-                # )
-        #         camera = Camera.from_npz(
-        #             data_npz["cameras"][
-        #                 int(np.asarray(data_npz["camera_indices"][idx]).item())
-        #             ]
-        #         ).float()
-        # except Exception:
-        #     logger.error(
-        #         "Failed to read NPZ content: path=%s seq_map=%s image_name=%s idx=%d",
-        #         path,
-        #         seq_map,
-        #         image_name,
-        #         idx,
-        #         exc_info=True,
-        #     )
-        #     try:
-        #         with zipfile.ZipFile(path) as zf:
-        #             bad_member = zf.testzip()
-        #         if bad_member:
-        #             logger.error("zipfile.testzip() bad member: %s", bad_member)
-        #         else:
-        #             logger.error("zipfile.testzip() did not find bad members.")
-        #     except Exception as zip_error:
-        #         logger.error("zipfile.testzip() failed for %s: %s", path, zip_error)
-        #     worker_info = torch.utils.data.get_worker_info()
-        #     if worker_info is not None:
-        #         try:
-        #             os.killpg(os.getpgrp(), signal.SIGINT)
-        #         except Exception as kill_error:
-        #             logger.error("Failed to signal process group: %s", kill_error)
-        #         os._exit(1)
-        #     raise SystemExit(1)
-
-        # read pose data
-        # T = self.poses[seq_map][idx].astype(np.float32, copy=False)
-        name = str(self.image_names[seq_map][idx][0])
+        name = str(self.image_names[seq_map][idx])
         image_size = torch.tensor(self.image_sizes[seq_map][idx]).float()
         image = None
         if self.conf.read_image:
@@ -438,116 +371,18 @@ class _PairDataset(torch.utils.data.Dataset):
             image = torch.zeros(
                 [3 - 2 * int(self.conf.grayscale), size[0], size[1]]
             ).float()
-
-
-            # def _dummy_image():
-            #     c = 1 if self.conf.grayscale else 3
-            #     w, h = int(image_size[0].item()), int(image_size[1].item())
-            #     return torch.zeros((c, h, w), dtype=torch.float32)
-            # if not image_path.exists():
-            #     logger.warning("Image not found at %s, using dummy.", image_path)
-            #     image = _dummy_image()
-            # else:
-            # try:
-            #     image = load_image(image_path, grayscale=self.conf.grayscale)
-            # except Exception:
-            #     logger.warning("Failed to load image at %s.", image_path)
-                # image = _dummy_image()
         
-        # # Assert all feature arrays have the same length in first dimension
-        # lengths = {
-        #     keypoints.shape[0],
-        #     descriptors.shape[0],
-        #     sparse_depth.shape[0],
-        #     scales.shape[0],
-        #     orientations.shape[0],
-        #     keypoint_scores.shape[0],
-        #     point3D_ids.shape[0],
-        #     valid_depth_mask.shape[0],
-        #     valid_3D_mask.shape[0],
-        # }
-        # assert len(lengths) == 1, "Feature arrays have mismatched lengths."
+        # add random rotations
+        do_rotate = self.conf.p_rotate > 0.0 and self.split == "train"
+        if do_rotate:
+            p = self.conf.p_rotate
+            k = 0
+            if np.random.rand() < p:
+                k = np.random.choice(2, 1, replace=False)[0] * 2 - 1
+                img = torch.rot90(img, k=-k, dims=[1, 2])
+                K = rotate_intrinsics(K, img.shape, k + 2)
+                T = rotate_pose_inplane(T, k + 2)
 
-        # cache = {
-        #     "keypoints": keypoints,
-        #     "descriptors": descriptors,
-        #     "sparse_depth": sparse_depth,
-        #     "scales": scales,
-        #     "oris": orientations,
-        #     "keypoint_scores": keypoint_scores,
-        #     "point3D_ids": point3D_ids,
-        #     "valid_depth_mask": valid_depth_mask,
-        #     "valid_3D_mask": valid_3D_mask,
-        # }
-
-        
-        # # Truncate features, prioritizing valid_3D keypoints
-        # max_num_features = self.conf.get("max_num_features", None)
-        # if max_num_features is None:
-        #     raise ValueError("max_num_features must be not None")
-        # num_features = len(keypoints)
-        # if num_features == 0:
-        #     indices = torch.tensor([], dtype=torch.long)
-        # elif num_features <= max_num_features:
-        #     indices = torch.arange(num_features, dtype=torch.long)
-        # else:
-        #     valid_idx = torch.where(valid_3D_mask)[0]
-        #     invalid_idx = torch.where(~valid_3D_mask)[0]
-        #     num_valid = len(valid_idx)
-        #     if num_valid >= max_num_features:
-        #         indices = valid_idx[
-        #             torch.topk(
-        #                 keypoint_scores[valid_idx], max_num_features
-        #             ).indices
-        #         ]
-        #     else:
-        #         remaining = max_num_features - num_valid
-        #         top_invalid = invalid_idx[
-        #             torch.topk(
-        #                 keypoint_scores[invalid_idx], remaining
-        #             ).indices
-        #         ]
-        #         indices = torch.cat([valid_idx, top_invalid], dim=0)
-        # cache = {k: v[indices] for k, v in cache.items()}
-
-        # # Padding for cnsistent batching
-        # # Pad with zeros (creates invalid keypoints at [0, 0])
-        # cache["keypoints"] = pad_to_length(
-        #     cache["keypoints"], 
-        #     max_num_features, 
-        #     -2,
-        #     mode="random_c",
-        #     bounds=(0, min(image_size))
-        # )
-        # cache["descriptors"] = pad_to_length(
-        #     cache["descriptors"], max_num_features, -2, mode="random"
-
-        # )
-        # cache["scales"] = pad_to_length(
-        #     cache["scales"], max_num_features, -1, mode="zeros"
-        # )
-        # cache["oris"] = pad_to_length(
-        #     cache["oris"], max_num_features, -1, mode="zeros"
-        # )
-        # cache["keypoint_scores"] = pad_to_length(
-        #     cache["keypoint_scores"], max_num_features, -1, mode="zeros"
-        # )
-        # # Pad depth with -1.0 (MISSING_DEPTH_VALUE)
-        # cache["sparse_depth"] = pad_to_length(
-        #     cache["sparse_depth"], max_num_features, -1, mode="minus_one"
-        # )
-        # # Pad point3D_ids with -1 (invalid ID)
-        # cache["point3D_ids"] = pad_to_length(
-        #     cache["point3D_ids"], max_num_features, -1, mode="minus_one"
-        # )
-        # # Pad masks with False (invalid)
-        # cache["valid_depth_mask"] = pad_to_length(
-        #     cache["valid_depth_mask"], max_num_features, -1, mode=False
-        # )
-        # cache["valid_3D_mask"] = pad_to_length(
-        #     cache["valid_3D_mask"], max_num_features, -1, mode=False
-        # )
-        
 
         data = {
             "name": name,
@@ -561,10 +396,25 @@ class _PairDataset(torch.utils.data.Dataset):
         
         data["scales"] = np.array([1.0, 1.0], dtype=np.float32)
 
+        if self.conf.load_features.do:
+            features = self.feature_loader({k: [v] for k, v in data.items()})
+            if do_rotate and k != 0:
+                # ang = np.deg2rad(k * 90.)
+                kpts = features["keypoints"].clone()
+                x, y = kpts[:, 0].clone(), kpts[:, 1].clone()
+                w, h = data["image_size"]
+                if k == 1:
+                    kpts[:, 0] = w - y
+                    kpts[:, 1] = x
+                elif k == -1:
+                    kpts[:, 0] = y
+                    kpts[:, 1] = h - x
 
-        # data = {"cache": cache, **data}
-        # if data_npz is not None:
-        #     data_npz.close()
+                else:
+                    raise ValueError
+                features["keypoints"] = kpts
+
+            data = {"cache": features, **data}
         return data
 
     def __getitem__(self, idx):

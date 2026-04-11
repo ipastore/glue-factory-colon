@@ -3,6 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import torch
 
+from .roma import RoMa
 from ...geometry.gt_generation import (
     gt_matches_from_roma,
 )
@@ -57,33 +58,52 @@ def _save_figures(figs, names, save_dir):
 
 class RomaGTMatcher(BaseModel):
     default_conf = {
-        #TODO add configs for roma
         "save_fig_when_debug": False,
+        "th_positive": None,
+        "th_negative": None,
+        "roma": {
+            "name": "matchers.roma",
+            "weights": "indoor",
+            "upsample_preds": True,
+            "symmetric": True,
+            "internal_hw": (560, 560),
+            "output_hw": None,
+            "sample": False,
+            "mixed_precision": True,
+            "add_cycle_error": False,
+            "sample_num_matches": 0,
+            "sample_mode": "threshold_balanced",
+            "filter_threshold": 0.05,
+            "max_kp_error": 2.0,
+            "mutual_check": True,
+        },
     }
+    required_data_keys = ["view0", "view1", "keypoints0", "keypoints1"]
 
     def _init(self, conf):
-        pass
+        self.roma = RoMa(conf.roma)
 
     @AMP_CUSTOM_FWD_F32
     def _forward(self, data):
-        gt = {}
-        keys = [
-            # "sparse_depth0",
-            # "valid_3D_mask0",
-            # "sparse_depth1",
-            # "valid_3D_mask1",
-            # "point3D_ids0",
-            # "point3D_ids1",
-            # "valid_depth_mask0",
-            # "valid_depth_mask1"
-        ]
-        kw = {k: data[k] for k in keys}
-        #TODO implement gt_matches_from_roma
+        roma_pred = self.roma(data)
+        valid0 = data.get("keypoint_scores0")
+        valid1 = data.get("keypoint_scores1")
+        if valid0 is None or valid1 is None:
+            raise ValueError(
+                "RomaGTMatcher requires keypoint_scores0/1 to mask padded features."
+            )
+        valid0 = valid0 > 0
+        valid1 = valid1 > 0
         gt = gt_matches_from_roma(
             data["keypoints0"],
             data["keypoints1"],
             data,
-            **kw,
+            matches0=roma_pred["matches0"],
+            matches1=roma_pred["matches1"],
+            matching_scores0=roma_pred.get("matching_scores0"),
+            matching_scores1=roma_pred.get("matching_scores1"),
+            valid0=valid0,
+            valid1=valid1,
         )
         if self.conf.save_fig_when_debug:
             if "image" in data["view0"] and "image" in data["view1"]:
