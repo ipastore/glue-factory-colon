@@ -2,25 +2,25 @@ data:
     name: endomapper_roma
     data_dir: slam-results_long_sequences_ENE26
     train_split: train_seqs.txt
-    train_num_per_scene: 2  #300
+    train_num_per_scene: 300  #300
     val_split: val_seqs.txt
-    val_num_per_scene: 10 # null to be overridden by val_pairs
-    val_pairs: null   #TODO: make the txt with the pairs
+    val_num_per_scene: null # null to be overridden by val_pairs
+    val_pairs: val_pairs.txt   #TODO: make the txt with the pairs
     overfit_split: overfit_seqs.txt
     overfit_pairs: null
     overfit_num_per_scene: 10 
     min_overlap: 0.0
-    max_overlap: 0.2
-    num_overlap_bins: 1
-    batch_size: 1 #32
-    num_workers: 1 #14
+    max_overlap: 0.99
+    num_overlap_bins: 5
+    batch_size: 32 #32
+    num_workers: 14 #14
     min_images_per_map: 10 
     read_image: true
     grayscale: false
     load_features:
-        do: false
-        path: exports/endomapper-roma-cudasift-k256_no_scale/{seq_map}.h5
-        padding_length: 256
+        do: true
+        path: exports/endomapper-roma-cudasift-k2048_no_scale/{seq_map}.h5
+        padding_length: 2048
         padding_fn: pad_local_features
         data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales"] #* #eraesd: , "depth_keypoints", "valid_depth_keypoints"
 
@@ -28,29 +28,29 @@ data:
 model:
     name: two_view_pipeline
     extractor:
-            name: extractors.sift
-            backend: py_cudasift
-            max_num_keypoints: 1024
-            force_num_keypoints: True
-            nms_radius: 3
-            detection_threshold: 0.0000667
-            rootsift: True
-            first_octave: -1
-            num_octaves: 4
-            init_blur: 1.0
-            extractor_channel: grayscale
-            filter_kpts_with_wrapper: False           # Only for py_cudasift. Truncate max kpts as Cudasift
-            filter_with_scale_weighting: False      # for all that has scores. Multiply scores by scales.
-            filter_with_lowest_scale: False      # Default is false. Only for those who dont have scores, scale as filter proxy.  
-            random_topk: False # if True, pick rando
+            name: null
+            # name: extractors.sift
+            # backend: py_cudasift
+            # max_num_keypoints: 1024
+            # force_num_keypoints: True
+            # nms_radius: 3
+            # detection_threshold: 0.0000667
+            # rootsift: True
+            # first_octave: -1
+            # num_octaves: 4
+            # init_blur: 1.0
+            # extractor_channel: grayscale
+            # filter_kpts_with_wrapper: False           # Only for py_cudasift. Truncate max kpts as Cudasift
+            # filter_with_scale_weighting: False      # for all that has scores. Multiply scores by scales.
+            # filter_with_lowest_scale: False      # Default is false. Only for those who dont have scores, scale as filter proxy.  
+            # random_topk: False # if True, pick random
     matcher:
         name: matchers.lightglue
         filter_threshold: 0.1
-        flash: false
+        flash: true
         checkpointed: true
         add_scale_ori: true
         input_dim: 128
-        weights: outputs/training/sift+lg_pretrained/sift_lightglue.pth
 
     ground_truth:
         name:  matchers.roma_gt_matcher #TODO add config for roma gt matcher
@@ -58,9 +58,9 @@ model:
         roma:
             name: matchers.roma
             weights: outdoor
-            upsample_preds: false
-            symmetric: false
-            internal_hw: [224, 224] #[532, 714] [546 x 728]  original size [540,720]
+            upsample_preds: true #debug false
+            symmetric: true #debug false
+            internal_hw: [532, 532] #[532, 714] [546 x 728]  original size [540,720] [224,224] debug
             output_hw: null
             sample: false
             mixed_precision: true
@@ -77,7 +77,7 @@ train:
     seed: 0
     epochs: 50
     log_every_iter: 100
-    eval_every_iter: 1
+    eval_every_iter: 1000
 
     # Write into tb gt figures
     log_gt_pos_val_once: true
@@ -95,6 +95,7 @@ train:
         - [0.6, 0.8]
         - [0.8, 0.99]
     eval_overlap_bins_include_overall: true
+    load_experiment: 05-sift_cudasift+lg_ENDO_3D
     
 
     lr: 2e-4
