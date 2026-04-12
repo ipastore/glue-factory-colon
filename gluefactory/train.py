@@ -416,13 +416,23 @@ def generate_gt_figures_for_batch(
         view1_cache = batch["view1"].get("cache", {})
         batch = {
             **batch,
-            "keypoints0": view0_cache.get("keypoints"),
-            "keypoints1": view1_cache.get("keypoints"),
-            "valid_3D_mask0": view0_cache.get("valid_3D_mask"),
-            "valid_3D_mask1": view1_cache.get("valid_3D_mask"),
-            "keypoint_scores0": view0_cache.get("keypoint_scores"),
-            "keypoint_scores1": view1_cache.get("keypoint_scores"),
+            "keypoints0": view0_cache.get("keypoints", pred.get("keypoints0")),
+            "keypoints1": view1_cache.get("keypoints", pred.get("keypoints1")),
+            "valid_3D_mask0": view0_cache.get(
+                "valid_3D_mask", pred.get("valid_3D_mask0")
+            ),
+            "valid_3D_mask1": view1_cache.get(
+                "valid_3D_mask", pred.get("valid_3D_mask1")
+            ),
+            "keypoint_scores0": view0_cache.get(
+                "keypoint_scores", pred.get("keypoint_scores0")
+            ),
+            "keypoint_scores1": view1_cache.get(
+                "keypoint_scores", pred.get("keypoint_scores1")
+            ),
         }
+    if batch.get("keypoints0") is None or batch.get("keypoints1") is None:
+        return []
     fig_kwargs = {}
     if n_pairs is not None:
         fig_kwargs["n_pairs"] = min(n_pairs, batch["keypoints0"].shape[0])
