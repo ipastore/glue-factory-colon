@@ -36,8 +36,8 @@ EXPECTED_KEYS = {
     "point3D_coords",
 }
 
-def check_image(path: Path):
-    """Check if an image can be opened using cv2.imread (same as read_image in gluefactory)."""
+def check_image(path: Path, black_threshold: int = 0):
+    """Check if an image can be opened and is not fully black."""
     if not path.exists():
         return False, f"File not found: {path}"
 
@@ -49,8 +49,12 @@ def check_image(path: Path):
         image = cv2.imread(str(path), cv2.IMREAD_COLOR)
         if image is None:
             return False, "cv2.imread returned None (could not decode image)"
-        # Verify we can access the array
-        _ = image.shape
+        max_value = int(image.max())
+        if max_value <= black_threshold:
+            return (
+                False,
+                f"image is fully black (max_pixel={max_value}, threshold={black_threshold})",
+            )
         return True, None
     except Exception as e:
         return False, f"cv2.imread exception: {e}"
@@ -60,6 +64,7 @@ def check_npz(
     data_root: Path,
     check_images: bool = True,
     full_read: bool = False,
+    black_threshold: int = 0,
 ):
     """Check if an NPZ file can be opened and loaded properly, optionally check images."""
     path = Path(path)
@@ -137,7 +142,9 @@ def check_npz(
                     img_name_str = str(np.asarray(img_name).item())
                     keyframe_path = keyframes_dir / f"Keyframe_{img_name_str}.png"
                     
-                    result, error = check_image(keyframe_path)
+                    result, error = check_image(
+                        keyframe_path, black_threshold=black_threshold
+                    )
                     if not result:
                         missing_images.append((keyframe_path, error))
                         
@@ -198,6 +205,12 @@ def main():
         action="store_true",
         help="Skip image validation and only check NPZ integrity.",
     )
+    parser.add_argument(
+        "--black-threshold",
+        type=int,
+        default=0,
+        help="Treat an image as black if all pixel values are <= this threshold.",
+    )
     args = parser.parse_args()
 
     # Root directory containing sequences
@@ -225,6 +238,8 @@ def main():
     print(f"Checking NPZ files in: {npz_dir}")
     print(f"Image validation: {image_status}")
     print(f"Full read: {'ENABLED' if args.full_read else 'DISABLED'}")
+    if check_images:
+        print(f"Black threshold: {args.black_threshold}")
     if args.npz:
         npz_path = Path(args.npz)
         if not npz_path.is_absolute():
@@ -248,6 +263,7 @@ def main():
             data_root,
             check_images=check_images,
             full_read=args.full_read,
+            black_threshold=args.black_threshold,
         )
         
         if not result:
