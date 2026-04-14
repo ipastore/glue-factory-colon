@@ -14,7 +14,7 @@ data:
     num_overlap_bins: 5
     batch_size: 32 #32
     num_workers: 14 #14
-    min_images_per_map: 10 
+    min_images_per_map: 25 
     read_image: true
     grayscale: false
     load_features:
@@ -60,7 +60,7 @@ model:
             weights: outdoor
             upsample_preds: true #debug false
             symmetric: true #debug false
-            internal_hw: [532, 532] #[532, 714] [546 x 728]  original size [540,720] [224,224] debug
+            internal_hw: [532, 714] #[532, 714] [546 x 728]  original size [540,720] [224,224] debug
             output_hw: null
             sample: false
             mixed_precision: true
@@ -95,7 +95,7 @@ train:
         - [0.6, 0.8]
         - [0.8, 0.99]
     eval_overlap_bins_include_overall: true
-    load_experiment: 05-sift_cudasift+lg_ENDO_3D
+    load_experiment: 04-py_cudasift+lg_MD_3D #03-py_cudasift+lg_OP_HOMO #04-py_cudasift+lg_MD_3D 05-sift_cudasift+lg_ENDO_3D
     
 
     lr: 2e-4
@@ -110,4 +110,3 @@ train:
     plot_ignored_predictions: true
     save_eval_figs: false
     keep_last_checkpoints: 2  # keep only the last X checkpoints
-    load_experiment: null           # nothing before
