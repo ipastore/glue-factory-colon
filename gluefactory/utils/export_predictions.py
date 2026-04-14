@@ -5,6 +5,7 @@ or call from another script.
 """
 
 from pathlib import Path
+import logging
 
 import h5py
 import numpy as np
@@ -12,6 +13,9 @@ import torch
 from tqdm import tqdm
 
 from .tensor import batch_to_device
+
+
+logger = logging.getLogger(__name__)
 
 
 @torch.no_grad()
@@ -31,6 +35,13 @@ def export_predictions(
     model = model.to(device).eval()
     for data_ in tqdm(loader):
         data = batch_to_device(data_, device, non_blocking=True)
+        name = data.get("name", [None])[0]
+        seq_map = data.get("seq_map", [None])[0]
+        logger.debug(
+            "Export predictions: seq_map=%s name=%s",
+            seq_map,
+            name,
+        )
         pred = model(data)
         if callback_fn is not None:
             pred = {**callback_fn(pred, data), **pred}
@@ -69,7 +80,6 @@ def export_predictions(
                 if (dt == np.float32) and (dt != np.float16):
                     pred[k] = pred[k].astype(np.float16)
         try:
-            name = data["name"][0]
             grp = hfile.create_group(name)
             for k, v in pred.items():
                 grp.create_dataset(k, data=v)

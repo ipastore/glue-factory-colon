@@ -1,4 +1,5 @@
 import string
+import logging
 
 import h5py
 import torch
@@ -8,6 +9,9 @@ from ..settings import DATA_PATH
 from ..utils.tensor import batch_to_device
 from .base_model import BaseModel
 from .utils.misc import pad_to_length
+
+
+logger = logging.getLogger(__name__)
 
 
 def pad_local_features(pred: dict, seq_l: int):
@@ -107,6 +111,12 @@ class CacheLoader(BaseModel):
             pkeys = (
                 self.conf.data_keys if self.conf.data_keys is not None else grp.keys()
             )
+            logger.debug(
+                "CacheLoader loading features: file=%s group=%s requested_keys=%s",
+                fpath,
+                name,
+                list(pkeys),
+            )
             pred = recursive_load(grp, pkeys)
             if self.numeric_dtype is not None:
                 pred = {
@@ -118,6 +128,26 @@ class CacheLoader(BaseModel):
                     )
                     for k, v in pred.items()
                 }
+            debug_shapes = {
+                k: tuple(v.shape) if isinstance(v, torch.Tensor) else type(v).__name__
+                for k, v in pred.items()
+            }
+            logger.debug(
+                "CacheLoader loaded tensors: file=%s group=%s shapes=%s",
+                fpath,
+                name,
+                debug_shapes,
+            )
+            if "keypoints" in pred and pred["keypoints"].shape[0] == 0:
+                logger.debug(
+                    "CacheLoader empty keypoints detected: file=%s group=%s "
+                    "available_group_keys=%s image_size=%s seq_map=%s",
+                    fpath,
+                    name,
+                    list(grp.keys()),
+                    data.get("image_size", [None])[i],
+                    data.get("seq_map", [None])[i],
+                )
             pred = batch_to_device(pred, device)
             for k, v in pred.items():
                 for pattern in self.conf.scale:
