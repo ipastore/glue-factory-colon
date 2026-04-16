@@ -1,8 +1,13 @@
-import torch
+import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from pathlib import Path
 
 from ..utils.tensor import batch_to_device
-from .viz2d import plot_image_grid, plot_keypoints, plot_matches
+from ..utils.image import get_pixel_grid, grid_sample, normalize_coords
+from .viz2d import plot_heatmaps, plot_image_grid, plot_keypoints, plot_matches
 from matplotlib.patches import Patch
 
 
@@ -30,6 +35,589 @@ def _compute_view_stats(gt_m, pred_m, pad_mask):
     }
 
 
+def _to_hwc_image(image):
+    if isinstance(image, torch.Tensor):
+        image = image.detach().cpu()
+    if image.ndim == 3 and image.shape[0] in (1, 3):
+        image = image.permute(1, 2, 0)
+    return image
+
+
+def _get_view_title(data, view_key, idx, fallback):
+    view = data.get(view_key)
+    if view is None:
+        return fallback
+    image_name = view.get("image_name")
+    if image_name is None:
+        return fallback
+    if isinstance(image_name, (list, tuple)):
+        name = image_name[idx]
+    else:
+        name = image_name[idx] if hasattr(image_name, "__getitem__") else image_name
+    if isinstance(name, torch.Tensor):
+        name = name.item() if name.ndim == 0 else name.tolist()
+    return Path(str(name)).stem
+
+
+def _roma_visible_panels(pred, data, idx):
+    image0 = data["view0"]["image"][idx : idx + 1]
+    image1 = data["view1"]["image"][idx : idx + 1]
+    certainty0 = pred["certainty0"][idx : idx + 1, None]
+    certainty1 = pred["certainty1"][idx : idx + 1, None]
+    q_coords0 = get_pixel_grid(fmap=pred["warp0"][idx : idx + 1], normalized=True)
+    q_coords1 = get_pixel_grid(fmap=pred["warp1"][idx : idx + 1], normalized=True)
+
+    image_0to0 = grid_sample(image0, q_coords0)
+    image_1to1 = grid_sample(image1, q_coords1)
+    image_1to0 = grid_sample(image1, pred["warp0"][idx : idx + 1])
+    image_0to1 = grid_sample(image0, pred["warp1"][idx : idx + 1])
+
+    white0 = torch.ones_like(certainty0)
+    white1 = torch.ones_like(certainty1)
+
+    return {
+        "image0": image0[0],
+        "image1": image1[0],
+        "image_1to0": image_1to0[0],
+        "image_0to1": image_0to1[0],
+        "visible_0to0": (certainty0 * image_0to0 + (1 - certainty0) * white0)[0],
+        "visible_1to1": (certainty1 * image_1to1 + (1 - certainty1) * white1)[0],
+        "visible_1to0": (certainty0 * image_1to0 + (1 - certainty0) * white0)[0],
+        "visible_0to1": (certainty1 * image_0to1 + (1 - certainty1) * white1)[0],
+    }
+
+
+def make_gt_roma_raw_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        imgs = [
+            _to_hwc_image(data["view0"]["image"][i]),
+            _to_hwc_image(data["view1"]["image"][i]),
+        ]
+        fig, axes = plot_image_grid(
+            [imgs],
+            titles=[[title0, title1]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        figs.append(fig)
+    return figs
+
+
+def make_gt_roma_demo_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    pure_warp_figs = []
+    directional_figs = {"1to0": [], "0to1": []}
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        panels = _roma_visible_panels(pred, data, i)
+        fig_1to0, _ = plot_image_grid(
+            [[_to_hwc_image(panels["image0"]), _to_hwc_image(panels["visible_1to0"])]],
+            titles=[[title0, f"{title1} warp"]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig_0to1, _ = plot_image_grid(
+            [[_to_hwc_image(panels["image1"]), _to_hwc_image(panels["visible_0to1"])]],
+            titles=[[title1, f"{title0} warp"]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig_pure_warp, _ = plot_image_grid(
+            [[
+                _to_hwc_image(panels["image_1to0"]),
+                _to_hwc_image(panels["image_0to1"]),
+            ]],
+            titles=[[f"{title1} warp", f"{title0} warp"]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        pure_warp_figs.append(fig_pure_warp)
+        directional_figs["1to0"].append(fig_1to0)
+        directional_figs["0to1"].append(fig_0to1)
+    return pure_warp_figs, directional_figs
+
+
+def _make_dense_metric_heatmap_fig(pred, data, key, idx, title, vmax=None):
+    title0 = _get_view_title(data, "view0", idx, "image0")
+    title1 = _get_view_title(data, "view1", idx, "image1")
+    metric0 = pred[f"{key}0"][idx].detach()
+    metric1 = pred[f"{key}1"][idx].detach()
+    fig, axes = plot_image_grid(
+        [[metric0, metric1]],
+        titles=[[title0, title1]],
+        cmaps=["turbo", "turbo"],
+        return_fig=True,
+        set_lim=True,
+        dpi=300,
+        pad=0.05,
+    )
+    axes[0][0].images[0].set_clim(vmin=0.0, vmax=vmax)
+    axes[0][1].images[0].set_clim(vmin=0.0, vmax=vmax)
+    return fig
+
+
+def _make_dense_metric_colormap_fig(pred, data, key, idx, title, vmin=0.0, vmax=None):
+    image0 = _to_hwc_image(data["view0"]["image"][idx])
+    image1 = _to_hwc_image(data["view1"]["image"][idx])
+    title0 = _get_view_title(data, "view0", idx, "image0")
+    title1 = _get_view_title(data, "view1", idx, "image1")
+    metric0 = pred[f"{key}0"][idx].detach()
+    metric1 = pred[f"{key}1"][idx].detach()
+    fig, axes = plot_image_grid(
+        [[image0, image1]],
+        titles=[[title0, title1]],
+        return_fig=True,
+        set_lim=True,
+        dpi=300,
+        pad=0.05,
+    )
+    im0 = axes[0][0].imshow(metric0, cmap="turbo", vmin=vmin, vmax=vmax, alpha=0.65)
+    im1 = axes[0][1].imshow(metric1, cmap="turbo", vmin=vmin, vmax=vmax, alpha=0.65)
+    cbar1 = fig.colorbar(im1, ax=axes[0][1], fraction=0.025, pad=0.01)
+    cbar1.ax.tick_params(labelsize=6)
+    cbar1.set_label(key, fontsize=7)
+    return fig
+
+
+def make_gt_roma_certainty_heatmap_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_dense_metric_colormap_fig(
+                pred,
+                data,
+                "certainty",
+                i,
+                "RoMa certainty heatmaps",
+                vmin=0.0,
+                vmax=1.0,
+            )
+        )
+    return figs
+
+
+def make_gt_roma_cycle_error_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in pred or "cycle_error1" not in pred:
+        return []
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    vmax = 5.0
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_dense_metric_colormap_fig(
+                pred,
+                data,
+                "cycle_error",
+                i,
+                "RoMa cycle error heatmaps",
+                vmin=0.0,
+                vmax=vmax,
+            )
+        )
+    return figs
+
+
+def make_gt_roma_matches_certainty_figs(gt_, data_, n_pairs=2):
+    gt = batch_to_device(gt_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    kp0, kp1 = data["keypoints0"], data["keypoints1"]
+    pad_mask0 = data.get("keypoint_scores0")
+    pad_mask1 = data.get("keypoint_scores1")
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
+    else:
+        pad_mask0 = torch.ones_like(gt["matches0"], dtype=torch.bool)
+    if pad_mask1 is not None:
+        pad_mask1 = pad_mask1 > 0
+    else:
+        pad_mask1 = torch.ones_like(gt["matches1"], dtype=torch.bool)
+
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        fig, axes = plot_image_grid(
+            [[
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ], [
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ]],
+            titles=[[title0, title1], [None, None]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(
+            fig.get_size_inches()[0] * 1.18, fig.get_size_inches()[1] * 1.18
+        )
+        fig.subplots_adjust(right=0.86, hspace=0.0, top=0.97, bottom=0.03)
+        match_mask0 = (gt["matches0"][i] > -1) & pad_mask0[i]
+        idx0 = torch.nonzero(match_mask0, as_tuple=False).squeeze(-1)
+        if idx0.numel():
+            idx1 = gt["matches0"][i][idx0].long()
+            scores0 = gt["matching_scores0"][i][idx0].numpy()
+            colors0 = [
+                tuple(c) for c in cm.turbo(np.clip(scores0, 0.0, 1.0)).tolist()
+            ]
+            plot_matches(
+                kp0[i][idx0].numpy(),
+                kp1[i][idx1].numpy(),
+                color=colors0,
+                axes=axes[0],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+        match_mask1 = (gt["matches1"][i] > -1) & pad_mask1[i]
+        idx1 = torch.nonzero(match_mask1, as_tuple=False).squeeze(-1)
+        if idx1.numel():
+            idx0_from_1 = gt["matches1"][i][idx1].long()
+            scores1 = gt["matching_scores1"][i][idx1].numpy()
+            colors1 = [
+                tuple(c) for c in cm.turbo(np.clip(scores1, 0.0, 1.0)).tolist()
+            ]
+            plot_matches(
+                kp0[i][idx0_from_1].numpy(),
+                kp1[i][idx1].numpy(),
+                color=colors1,
+                axes=axes[1],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
+            sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+            cbar = fig.colorbar(sm, cax=cax)
+            cbar.ax.tick_params(labelsize=6)
+            cbar.set_label("certainty", fontsize=7)
+
+        figs.append(fig)
+    return figs
+
+
+def _mutual_intersection_pairs(matches0, matches1, pad_mask0, pad_mask1):
+    idx0 = torch.nonzero((matches0 > -1) & pad_mask0, as_tuple=False).squeeze(-1)
+    if idx0.numel() == 0:
+        return idx0, idx0
+    idx1 = matches0[idx0].long()
+    valid = pad_mask1[idx1] & (matches1[idx1] == idx0)
+    return idx0[valid], idx1[valid]
+
+
+def make_gt_roma_matches_certainty_intersection_figs(gt_, data_, n_pairs=2):
+    gt = batch_to_device(gt_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    kp0, kp1 = data["keypoints0"], data["keypoints1"]
+    pad_mask0 = data.get("keypoint_scores0")
+    pad_mask1 = data.get("keypoint_scores1")
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
+    else:
+        pad_mask0 = torch.ones_like(gt["matches0"], dtype=torch.bool)
+    if pad_mask1 is not None:
+        pad_mask1 = pad_mask1 > 0
+    else:
+        pad_mask1 = torch.ones_like(gt["matches1"], dtype=torch.bool)
+
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        fig, axes = plot_image_grid(
+            [[
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ], [
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ]],
+            titles=[[title0, title1], [None, None]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(
+            fig.get_size_inches()[0] * 1.18, fig.get_size_inches()[1] * 1.18
+        )
+        fig.subplots_adjust(right=0.86, hspace=0.0, top=0.97, bottom=0.03)
+        idx0, idx1 = _mutual_intersection_pairs(
+            gt["matches0"][i], gt["matches1"][i], pad_mask0[i], pad_mask1[i]
+        )
+        if idx0.numel():
+            scores0 = gt["matching_scores0"][i][idx0].numpy()
+            colors0 = [tuple(c) for c in cm.turbo(np.clip(scores0, 0.0, 1.0)).tolist()]
+            plot_matches(
+                kp0[i][idx0].numpy(),
+                kp1[i][idx1].numpy(),
+                color=colors0,
+                axes=axes[0],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            scores1 = gt["matching_scores1"][i][idx1].numpy()
+            colors1 = [tuple(c) for c in cm.turbo(np.clip(scores1, 0.0, 1.0)).tolist()]
+            plot_matches(
+                kp0[i][idx0].numpy(),
+                kp1[i][idx1].numpy(),
+                color=colors1,
+                axes=axes[1],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            norm = mcolors.Normalize(vmin=0.0, vmax=1.0)
+            sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+            cbar = fig.colorbar(sm, cax=cax)
+            cbar.ax.tick_params(labelsize=6)
+            cbar.set_label("certainty", fontsize=7)
+        figs.append(fig)
+    return figs
+
+
+def make_gt_roma_keypoints_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        fig, axes = plot_image_grid(
+            [[
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ]],
+            titles=[[title0, title1]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        plot_keypoints(
+            [pred["keypoints0"][i], pred["keypoints1"][i]],
+            axes=axes[0],
+            colors=["lime", "cyan"],
+            ps=[1.5, 1.5],
+        )
+        fig.subplots_adjust(top=0.9)
+        figs.append(fig)
+    return figs
+
+
+def make_gt_roma_matches_cycle_error_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in pred:
+        return []
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    pad_mask0 = data.get("keypoint_scores0")
+    pad_mask1 = data.get("keypoint_scores1")
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
+    else:
+        pad_mask0 = torch.ones_like(pred["matches0"], dtype=torch.bool)
+    if pad_mask1 is not None:
+        pad_mask1 = pad_mask1 > 0
+    else:
+        pad_mask1 = torch.ones_like(pred["matches1"], dtype=torch.bool)
+
+    vmax = 5.0
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        fig, axes = plot_image_grid(
+            [[
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ], [
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ]],
+            titles=[[title0, title1], [None, None]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(
+            fig.get_size_inches()[0] * 1.18, fig.get_size_inches()[1] * 1.18
+        )
+        fig.subplots_adjust(right=0.86, hspace=0.0, top=0.97, bottom=0.03)
+        match_mask0 = (pred["matches0"][i] > -1) & pad_mask0[i]
+        idx0 = torch.nonzero(match_mask0, as_tuple=False).squeeze(-1)
+        if idx0.numel():
+            idx1 = pred["matches0"][i][idx0].long()
+            kpts0 = data["keypoints0"][i][idx0]
+            coords0 = normalize_coords(
+                kpts0[None], data["view0"]["image"][i].shape[-2:]
+            )
+            cycle_scores0 = grid_sample(
+                pred["cycle_error0"][i : i + 1, None], coords0[:, None]
+            )[0, 0, 0].numpy()
+            norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            colors0 = [tuple(c) for c in cm.turbo(norm(cycle_scores0)).tolist()]
+            plot_matches(
+                data["keypoints0"][i][idx0].numpy(),
+                data["keypoints1"][i][idx1].numpy(),
+                color=colors0,
+                axes=axes[0],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+        match_mask1 = (pred["matches1"][i] > -1) & pad_mask1[i]
+        idx1 = torch.nonzero(match_mask1, as_tuple=False).squeeze(-1)
+        if idx1.numel():
+            idx0_from_1 = pred["matches1"][i][idx1].long()
+            kpts1 = data["keypoints1"][i][idx1]
+            coords1 = normalize_coords(
+                kpts1[None], data["view1"]["image"][i].shape[-2:]
+            )
+            cycle_scores1 = grid_sample(
+                pred["cycle_error1"][i : i + 1, None], coords1[:, None]
+            )[0, 0, 0].numpy()
+            norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            colors1 = [tuple(c) for c in cm.turbo(norm(cycle_scores1)).tolist()]
+            plot_matches(
+                data["keypoints0"][i][idx0_from_1].numpy(),
+                data["keypoints1"][i][idx1].numpy(),
+                color=colors1,
+                axes=axes[1],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+            cbar = fig.colorbar(sm, cax=cax)
+            cbar.ax.tick_params(labelsize=6)
+            cbar.set_label("cycle error (px)", fontsize=7)
+        figs.append(fig)
+    return figs
+
+
+def make_gt_roma_matches_cycle_error_intersection_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in pred or "cycle_error1" not in pred:
+        return []
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    pad_mask0 = data.get("keypoint_scores0")
+    pad_mask1 = data.get("keypoint_scores1")
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
+    else:
+        pad_mask0 = torch.ones_like(pred["matches0"], dtype=torch.bool)
+    if pad_mask1 is not None:
+        pad_mask1 = pad_mask1 > 0
+    else:
+        pad_mask1 = torch.ones_like(pred["matches1"], dtype=torch.bool)
+
+    vmax = 5.0
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        fig, axes = plot_image_grid(
+            [[
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ], [
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ]],
+            titles=[[title0, title1], [None, None]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(
+            fig.get_size_inches()[0] * 1.18, fig.get_size_inches()[1] * 1.18
+        )
+        fig.subplots_adjust(right=0.86, hspace=0.0, top=0.97, bottom=0.03)
+        idx0, idx1 = _mutual_intersection_pairs(
+            pred["matches0"][i], pred["matches1"][i], pad_mask0[i], pad_mask1[i]
+        )
+        if idx0.numel():
+            coords0 = normalize_coords(
+                data["keypoints0"][i][idx0][None], data["view0"]["image"][i].shape[-2:]
+            )
+            cycle_scores0 = grid_sample(
+                pred["cycle_error0"][i : i + 1, None], coords0[:, None]
+            )[0, 0, 0].numpy()
+            norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            colors0 = [tuple(c) for c in cm.turbo(norm(cycle_scores0)).tolist()]
+            plot_matches(
+                data["keypoints0"][i][idx0].numpy(),
+                data["keypoints1"][i][idx1].numpy(),
+                color=colors0,
+                axes=axes[0],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            coords1 = normalize_coords(
+                data["keypoints1"][i][idx1][None], data["view1"]["image"][i].shape[-2:]
+            )
+            cycle_scores1 = grid_sample(
+                pred["cycle_error1"][i : i + 1, None], coords1[:, None]
+            )[0, 0, 0].numpy()
+            colors1 = [tuple(c) for c in cm.turbo(norm(cycle_scores1)).tolist()]
+            plot_matches(
+                data["keypoints0"][i][idx0].numpy(),
+                data["keypoints1"][i][idx1].numpy(),
+                color=colors1,
+                axes=axes[1],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+            cbar = fig.colorbar(sm, cax=cax)
+            cbar.ax.tick_params(labelsize=6)
+            cbar.set_label("cycle error (px)", fontsize=7)
+        figs.append(fig)
+    return figs
+
+
 def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
     """Return a list of per-pair GT debug figures."""
 
@@ -41,10 +629,10 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
     assert view0["image"].shape[0] >= n_pairs
 
     kp0, kp1 = data["keypoints0"], data["keypoints1"]
-    pred_m0 = data["matches0"]
-    pred_m1 = data["matches1"]
     gt_m0 = gt["matches0"]
     gt_m1 = gt["matches1"]
+    pred_m0 = data.get("matches0", gt_m0)
+    pred_m1 = data.get("matches1", gt_m1)
     #TODO: change mask for valid_depth to generalize better or be semantically clear
     pad_mask0 = data["keypoint_scores0"]>0
     pad_mask1 = data["keypoint_scores1"]>0

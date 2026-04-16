@@ -97,6 +97,8 @@ def match_keypoints_dense(
     data: dict,  # Contains keypoints and images
     max_kp_error: float,
     filter_threshold: float,
+    cycle_error_threshold: float | None = None,
+    require_bidirectional_match: bool = False,
     mutual_check: bool = True,
 ) -> dict:
     """Match keypoints using dense correspondences."""
@@ -106,7 +108,7 @@ def match_keypoints_dense(
     img0 = data["view0"]["image"]
     img1 = data["view1"]["image"]
 
-    def find_matches(kpts_q, kpts_t, warp, cert, q_hw, t_hw):
+    def find_matches(kpts_q, kpts_t, warp, cert, q_hw, t_hw, cycle_error=None):
         if kpts_q.shape[1] == 0:
             matches = kpts_q.new_full(kpts_q.shape[:2], -1, dtype=torch.long)
             scores = kpts_q.new_zeros(kpts_q.shape[:2])
@@ -122,6 +124,9 @@ def match_keypoints_dense(
             :, :, 0
         ].permute(0, 2, 1)
         scores = grid_sample(cert[:, None], kpts_q[:, None])[:, 0, 0]
+        cycle_scores = None
+        if cycle_error_threshold is not None and cycle_error is not None:
+            cycle_scores = grid_sample(cycle_error[:, None], kpts_q[:, None])[:, 0, 0]
         # Corresponding coordinates in the other image (target), COLMAP coords.
         kpts_q_to_t = denormalize_coords(kpts_q_to_t, t_hw)
         # Output points are again in COLMAP coordinates
@@ -134,6 +139,9 @@ def match_keypoints_dense(
             mutual = indicesq == torch.min(dist, dim=-2).indices.gather(1, matches)
             valid = valid & mutual
         valid = valid & (scores > filter_threshold)
+        if cycle_scores is not None:
+            valid = valid & torch.isfinite(cycle_scores)
+            valid = valid & (cycle_scores < cycle_error_threshold)
         return torch.where(valid, matches, -1), torch.where(valid, scores, 0)
 
     mpred = {}
@@ -144,6 +152,7 @@ def match_keypoints_dense(
         pred["certainty0"],
         img0.shape[-2:],
         img1.shape[-2:],
+        pred.get("cycle_error0"),
     )
     mpred["matches1"], mpred["matching_scores1"] = find_matches(
         kpts1,
@@ -152,7 +161,30 @@ def match_keypoints_dense(
         pred["certainty1"],
         img1.shape[-2:],
         img0.shape[-2:],
+        pred.get("cycle_error1"),
     )
+    if require_bidirectional_match:
+        n0, n1 = kpts0.shape[1], kpts1.shape[1]
+        arange0 = torch.arange(n0, device=kpts0.device)[None]
+        arange1 = torch.arange(n1, device=kpts1.device)[None]
+        valid0 = mpred["matches0"] >= 0
+        valid1 = mpred["matches1"] >= 0
+        mutual_sparse0 = mpred["matches1"].gather(
+            1, mpred["matches0"].clamp(min=0)
+        ) == arange0
+        mutual_sparse1 = mpred["matches0"].gather(
+            1, mpred["matches1"].clamp(min=0)
+        ) == arange1
+        valid0 = valid0 & mutual_sparse0
+        valid1 = valid1 & mutual_sparse1
+        mpred["matches0"] = torch.where(valid0, mpred["matches0"], -1)
+        mpred["matches1"] = torch.where(valid1, mpred["matches1"], -1)
+        mpred["matching_scores0"] = torch.where(
+            valid0, mpred["matching_scores0"], torch.zeros_like(mpred["matching_scores0"])
+        )
+        mpred["matching_scores1"] = torch.where(
+            valid1, mpred["matching_scores1"], torch.zeros_like(mpred["matching_scores1"])
+        )
 
     # Pipe the keypoints again
     mpred["keypoints0"] = data["keypoints0"]
@@ -177,6 +209,8 @@ class RoMa(base_model.BaseModel):
         "sample_num_matches": 0,  # sample X sparse matches, <=0 means no sampling
         "sample_mode": "threshold_balanced",
         "filter_threshold": 0.05,  # threshold for filtering matches
+        "cycle_error_threshold": None,  # optional threshold for cycle error (px)
+        "require_bidirectional_match": False,  # keep only sparse pairs that survive both directions
         "max_kp_error": 2.0,  # maximum distance for matching keypoints (px)
         "mutual_check": True,  # check mutual NN in keypoint matching
     }
@@ -245,6 +279,8 @@ class RoMa(base_model.BaseModel):
                     data,
                     self.conf.max_kp_error,
                     self.conf.filter_threshold,
+                    self.conf.cycle_error_threshold,
+                    self.conf.require_bidirectional_match,
                     self.conf.mutual_check,
                 )
             )
@@ -463,19 +499,32 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
 
+    from ..extractors.sift import SIFT
     from ...utils.image import ImagePreprocessor
-    from ...utils.tensor import rbd
-    from ...visualization import viz2d
+    from ...visualization.gt_visualize_matches import (
+        make_gt_roma_certainty_heatmap_figs,
+        make_gt_roma_cycle_error_figs,
+        make_gt_roma_demo_figs,
+        make_gt_roma_keypoints_figs,
+        make_gt_roma_matches_certainty_figs,
+        make_gt_roma_matches_certainty_intersection_figs,
+        make_gt_roma_matches_cycle_error_figs,
+        make_gt_roma_matches_cycle_error_intersection_figs,
+        make_gt_roma_raw_figs,
+    )
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--image0", type=str, default="assets/boat1.png")
     parser.add_argument("--image1", type=str, default="assets/boat2.png")
+    parser.add_argument("--run_name", type=str, default="experiment")
     args = parser.parse_args()
 
     image_loader = ImagePreprocessor({"resize": 480})
 
     image_path0 = Path(args.image0)
     image_path1 = Path(args.image1)
+    save_dir = Path("roma_viz") / args.run_name
+    save_dir.mkdir(parents=True, exist_ok=True)
 
     data0, data1 = image_loader.load_image(image_path0), image_loader.load_image(
         image_path1
@@ -483,61 +532,146 @@ if __name__ == "__main__":
     image0, image1 = data0["image"], data1["image"]
 
     device = "cuda"
-    dkm_model = RoMa({"symmetric": True, "sample_num_matches": 0}).eval().to(device)
+    roma_conf = {
+        "weights": "outdoor",
+        "upsample_preds": True,
+        "symmetric": True,
+        "internal_hw": [630,630], #532, 714 630 630
+        "output_hw": None,
+        "sample": False,
+        "mixed_precision": True,
+        "add_cycle_error": True,
+        "sample_num_matches": 0,
+        "sample_mode": "threshold_balanced",
+        "filter_threshold": 0.0,
+        "cycle_error_threshold": 10.0,
+        "require_bidirectional_match": False,
+        "max_kp_error": 2.0,
+        "mutual_check": True,
+    }
+    dkm_model = RoMa(roma_conf).eval().to(device)
     data = {
-        "view0": {"image": image0.to(device)[None]},
-        "view1": {"image": image1.to(device)[None]},
+        "view0": {"image": image0.to(device)[None], "image_name": [str(image_path0)]},
+        "view1": {"image": image1.to(device)[None], "image_name": [str(image_path1)]},
     }
 
-    # Example to match SuperPoint keypoints with RoMa (use LG interface)
-    from lightglue import SuperPoint
-
-    extractor = SuperPoint(max_num_keypoints=2048).eval().cuda()  # load the extractor
-    feats0 = extractor.extract(image0.to(device))
-    feats1 = extractor.extract(image1.to(device))
+    extractor_conf = {
+        "backend": "py_cudasift",
+        "max_num_keypoints": 2048,
+        "force_num_keypoints": True,
+        "nms_radius": 3,
+        "detection_threshold": 0.0000667,
+        "rootsift": True,
+        "first_octave": -1,
+        "num_octaves": 4,
+        "init_blur": 1.0,
+        "extractor_channel": "grayscale",
+        "filter_kpts_with_wrapper": False,
+        "filter_with_scale_weighting": False,
+        "filter_with_lowest_scale": False,
+        "random_topk": False,
+    }
+    extractor = SIFT(extractor_conf).eval().to(device)
+    feats0 = extractor({"image": image0.to(device)[None]})
+    feats1 = extractor({"image": image1.to(device)[None]})
 
     data.update({k + "0": v for k, v in feats0.items()})
     data.update({k + "1": v for k, v in feats1.items()})
 
-    pred = rbd(dkm_model(data))
-    certainty0 = pred["certainty0"]
-    certainty1 = pred["certainty1"]
+    pred = dkm_model(data)
 
-    q_coords0 = get_pixel_grid(fmap=pred["warp0"], normalized=True)
-    q_coords1 = get_pixel_grid(fmap=pred["warp1"], normalized=True)
-
-    image_0to0 = grid_sample(image0, q_coords0)
-    image_1to1 = grid_sample(image1, q_coords1)
-    image_1to0 = grid_sample(image1, pred["warp0"])
-    image_0to1 = grid_sample(image0, pred["warp1"])
-
-    white0, white1 = torch.ones_like(certainty0).to(device), torch.ones_like(
-        certainty1
-    ).to(device)
-    visible_0to0 = certainty0 * image_0to0 + (1 - certainty0) * white0
-    visible_1to1 = certainty1 * image_1to1 + (1 - certainty1) * white1
-    viz2d.plot_images([visible_0to0, visible_1to1])
-
-    plt.savefig("roma_covisible.png")
-    visible_1to0 = certainty0 * image_1to0 + (1 - certainty0) * white0
-    visible_0to1 = certainty1 * image_0to1 + (1 - certainty1) * white1
-    viz2d.plot_images(
-        [visible_1to0, visible_0to1],
+    raw_fig = make_gt_roma_raw_figs(pred, data, n_pairs=1)[0]
+    raw_fig.savefig(
+        save_dir / "roma_raw_images.png", bbox_inches="tight", pad_inches=0, dpi=300
     )
+    plt.close(raw_fig)
 
-    plt.savefig("roma_warp.png")
+    pure_warp_figs, directional_figs = make_gt_roma_demo_figs(pred, data, n_pairs=1)
+    pure_warp_figs[0].savefig(
+        save_dir / "roma_pure_warp.png", bbox_inches="tight", pad_inches=0, dpi=300
+    )
+    plt.close(pure_warp_figs[0])
+    directional_figs["1to0"][0].savefig(
+        save_dir / "roma_warp_1to0.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(directional_figs["1to0"][0])
+    directional_figs["0to1"][0].savefig(
+        save_dir / "roma_warp_0to1.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(directional_figs["0to1"][0])
+
+    certainty_fig = make_gt_roma_certainty_heatmap_figs(pred, data, n_pairs=1)[0]
+    certainty_fig.savefig(
+        save_dir / "roma_certainty_heatmap.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(certainty_fig)
+
+    cycle_figs = make_gt_roma_cycle_error_figs(pred, data, n_pairs=1)
+    if cycle_figs:
+        cycle_figs[0].savefig(
+            save_dir / "roma_cycle_error.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
+        )
+        plt.close(cycle_figs[0])
 
     if "keypoints0" in pred:
-        kpts0 = pred["keypoints0"]
-        kpts1 = pred["keypoints1"]
-
-        viz2d.plot_images(
-            [image0, image1],
+        keypoints_fig = make_gt_roma_keypoints_figs(pred, data, n_pairs=1)[0]
+        keypoints_fig.savefig(
+            save_dir / "roma_keypoints.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
         )
+        plt.close(keypoints_fig)
 
-        valid = pred["matches0"] > -1
-        kpts1 = kpts1[pred["matches0"]]
-        kpts0, kpts1 = kpts0[valid], kpts1[valid]
-        viz2d.plot_matches(kpts0, kpts1, a=0.2)
-
-        plt.savefig("roma_matches.png")
+        matches_fig = make_gt_roma_matches_certainty_figs(pred, data, n_pairs=1)[0]
+        matches_fig.savefig(
+            save_dir / "roma_matches_certainty.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
+        )
+        plt.close(matches_fig)
+        matches_intersection_fig = make_gt_roma_matches_certainty_intersection_figs(
+            pred, data, n_pairs=1
+        )[0]
+        matches_intersection_fig.savefig(
+            save_dir / "roma_matches_certainty_intersection.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
+        )
+        plt.close(matches_intersection_fig)
+        matches_cycle_figs = make_gt_roma_matches_cycle_error_figs(pred, data, n_pairs=1)
+        if matches_cycle_figs:
+            matches_cycle_figs[0].savefig(
+                save_dir / "roma_matches_cycle_error.png",
+                bbox_inches="tight",
+                pad_inches=0,
+                dpi=300,
+            )
+            plt.close(matches_cycle_figs[0])
+        matches_cycle_intersection_figs = (
+            make_gt_roma_matches_cycle_error_intersection_figs(
+                pred, data, n_pairs=1
+            )
+        )
+        if matches_cycle_intersection_figs:
+            matches_cycle_intersection_figs[0].savefig(
+                save_dir / "roma_matches_cycle_error_intersection.png",
+                bbox_inches="tight",
+                pad_inches=0,
+                dpi=300,
+            )
+            plt.close(matches_cycle_intersection_figs[0])

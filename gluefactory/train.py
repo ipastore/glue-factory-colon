@@ -1369,6 +1369,11 @@ if __name__ == "__main__":
         restore_conf = OmegaConf.load(output_dir / "config.yaml")
         conf = OmegaConf.merge(restore_conf, conf)
     conf = OmegaConf.merge(conf, {"train": {"experiment_name": args.experiment}})
+    if "model" in conf and "ground_truth" in conf.model:
+        conf = OmegaConf.merge(
+            conf,
+            {"model": {"ground_truth": {"experiment_name": args.experiment}}},
+        )
 
     if not args.restore:
         if conf.train.seed is None:
