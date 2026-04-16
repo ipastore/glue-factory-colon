@@ -11,8 +11,15 @@ from ... import settings
 from ..base_model import BaseModel
 from ...visualization.gt_visualize_matches import (
     make_gt_roma_certainty_heatmap_figs,
+    make_gt_roma_certainty_heatmap_log_figs,
+    make_gt_roma_certainty_heatmap_log_wide_figs,
     make_gt_roma_cycle_error_figs,
+    make_gt_roma_cycle_error_heatmap_log_figs,
     make_gt_roma_demo_figs,
+    make_gt_roma_keypoints_certainty_figs,
+    make_gt_roma_keypoints_certainty_log_figs,
+    make_gt_roma_keypoints_cycle_error_figs,
+    make_gt_roma_keypoints_cycle_error_log_figs,
     make_gt_roma_matches_certainty_figs,
     make_gt_roma_matches_certainty_intersection_figs,
     make_gt_roma_matches_cycle_error_figs,
@@ -173,11 +180,32 @@ def _save_roma_phase1_debug_outputs(roma_pred, gt, data, conf):
     certainty_figs = make_gt_roma_certainty_heatmap_figs(
         roma_pred, data, n_pairs=n_pairs
     )
+    certainty_log_figs = make_gt_roma_certainty_heatmap_log_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
+    certainty_log_wide_figs = make_gt_roma_certainty_heatmap_log_wide_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
+    keypoints_certainty_figs = make_gt_roma_keypoints_certainty_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
+    keypoints_certainty_log_figs = make_gt_roma_keypoints_certainty_log_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
     matches_figs = make_gt_roma_matches_certainty_figs(gt, data, n_pairs=n_pairs)
     matches_intersection_figs = make_gt_roma_matches_certainty_intersection_figs(
         gt, data, n_pairs=n_pairs
     )
     cycle_figs = make_gt_roma_cycle_error_figs(roma_pred, data, n_pairs=n_pairs)
+    cycle_log_figs = make_gt_roma_cycle_error_heatmap_log_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
+    keypoints_cycle_figs = make_gt_roma_keypoints_cycle_error_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
+    keypoints_cycle_log_figs = make_gt_roma_keypoints_cycle_error_log_figs(
+        roma_pred, data, n_pairs=n_pairs
+    )
     matches_cycle_figs = make_gt_roma_matches_cycle_error_figs(
         roma_pred, data, n_pairs=n_pairs
     )
@@ -200,6 +228,20 @@ def _save_roma_phase1_debug_outputs(roma_pred, gt, data, conf):
         _save_named_figure(
             certainty_figs[idx], pair_dir / "roma_certainty_heatmap.png"
         )
+        _save_named_figure(
+            certainty_log_figs[idx], pair_dir / "roma_certainty_heatmap_log.png"
+        )
+        _save_named_figure(
+            certainty_log_wide_figs[idx],
+            pair_dir / "roma_certainty_heatmap_log_wide.png",
+        )
+        _save_named_figure(
+            keypoints_certainty_figs[idx], pair_dir / "roma_keypoints_certainty.png"
+        )
+        _save_named_figure(
+            keypoints_certainty_log_figs[idx],
+            pair_dir / "selection_hard_negatives.png",
+        )
         _save_named_figure(matches_figs[idx], pair_dir / "roma_matches_certainty.png")
         _save_named_figure(
             matches_intersection_figs[idx],
@@ -216,6 +258,19 @@ def _save_roma_phase1_debug_outputs(roma_pred, gt, data, conf):
             )
         if idx < len(cycle_figs):
             _save_named_figure(cycle_figs[idx], pair_dir / "roma_cycle_error.png")
+        if idx < len(cycle_log_figs):
+            _save_named_figure(
+                cycle_log_figs[idx], pair_dir / "roma_cycle_error_log.png"
+            )
+        if idx < len(keypoints_cycle_figs):
+            _save_named_figure(
+                keypoints_cycle_figs[idx], pair_dir / "roma_keypoints_cycle_error.png"
+            )
+        if idx < len(keypoints_cycle_log_figs):
+            _save_named_figure(
+                keypoints_cycle_log_figs[idx],
+                pair_dir / "roma_keypoints_cycle_error_log.png",
+            )
         report = _build_roma_pair_report(idx, name, roma_pred, gt, data, conf)
         (pair_dir / "report.txt").write_text(report)
 

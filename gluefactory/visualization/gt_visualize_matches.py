@@ -59,6 +59,31 @@ def _get_view_title(data, view_key, idx, fallback):
     return Path(str(name)).stem
 
 
+def _get_pad_mask(data, match_key):
+    score_key = f"keypoint_scores{match_key[-1]}"
+    pad_mask = data.get(score_key)
+    if pad_mask is not None:
+        return pad_mask > 0
+    return None
+
+
+def _sample_dense_metric_at_keypoints(pred, data, key, idx, view_idx, pad_mask):
+    kpts = data[f"keypoints{view_idx}"][idx]
+    if pad_mask is None:
+        valid = torch.ones(kpts.shape[0], dtype=torch.bool)
+    else:
+        valid = pad_mask[idx]
+    if not valid.any():
+        return kpts[valid], torch.empty(0)
+    coords = normalize_coords(
+        kpts[valid][None], data[f"view{view_idx}"]["image"][idx].shape[-2:]
+    )
+    values = grid_sample(pred[f"{key}{view_idx}"][idx : idx + 1, None], coords[:, None])[
+        0, 0, 0
+    ]
+    return kpts[valid], values
+
+
 def _roma_visible_panels(pred, data, idx):
     image0 = data["view0"]["image"][idx : idx + 1]
     image1 = data["view1"]["image"][idx : idx + 1]
@@ -196,6 +221,33 @@ def _make_dense_metric_colormap_fig(pred, data, key, idx, title, vmin=0.0, vmax=
     return fig
 
 
+def _make_dense_metric_custom_colormap_fig(
+    pred, data, key, idx, cbar_label, value_fn, norm, ticks=None, ticklabels=None
+):
+    image0 = _to_hwc_image(data["view0"]["image"][idx])
+    image1 = _to_hwc_image(data["view1"]["image"][idx])
+    title0 = _get_view_title(data, "view0", idx, "image0")
+    title1 = _get_view_title(data, "view1", idx, "image1")
+    metric0 = value_fn(pred[f"{key}0"][idx].detach())
+    metric1 = value_fn(pred[f"{key}1"][idx].detach())
+    fig, axes = plot_image_grid(
+        [[image0, image1]],
+        titles=[[title0, title1]],
+        return_fig=True,
+        set_lim=True,
+        dpi=300,
+        pad=0.05,
+    )
+    axes[0][0].imshow(metric0, cmap="turbo", norm=norm, alpha=0.65)
+    im1 = axes[0][1].imshow(metric1, cmap="turbo", norm=norm, alpha=0.65)
+    cbar = fig.colorbar(im1, ax=axes[0][1], fraction=0.025, pad=0.01, ticks=ticks)
+    if ticklabels is not None:
+        cbar.ax.set_yticklabels(ticklabels)
+    cbar.ax.tick_params(labelsize=6)
+    cbar.set_label(cbar_label, fontsize=7)
+    return fig
+
+
 def make_gt_roma_certainty_heatmap_figs(pred_, data_, n_pairs=2):
     pred = batch_to_device(pred_, "cpu", non_blocking=False)
     data = batch_to_device(data_, "cpu", non_blocking=False)
@@ -234,6 +286,250 @@ def make_gt_roma_cycle_error_figs(pred_, data_, n_pairs=2):
                 "RoMa cycle error heatmaps",
                 vmin=0.0,
                 vmax=vmax,
+            )
+        )
+    return figs
+
+
+def make_gt_roma_certainty_heatmap_log_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    ticks = [2.0, 3.0, 3.30103, 4.0, 5.0, 6.0]
+    ticklabels = ["0.01", "0.001", "0.0005", "0.0001", "0.00001", "0.000001"]
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_dense_metric_custom_colormap_fig(
+                pred,
+                data,
+                "certainty",
+                i,
+                "-log10(certainty)",
+                lambda values: (-torch.log10(values.clamp(1e-6, 1e-2))).detach(),
+                mcolors.Normalize(vmin=2.0, vmax=6.0),
+                ticks=ticks,
+                ticklabels=ticklabels,
+            )
+        )
+    return figs
+
+
+def make_gt_roma_certainty_heatmap_log_wide_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    ticks = [0.0, 1.0, 2.0, 3.0, 4.0]
+    ticklabels = ["1", "0.1", "0.01", "0.001", "0.0001"]
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_dense_metric_custom_colormap_fig(
+                pred,
+                data,
+                "certainty",
+                i,
+                "-log10(certainty)",
+                lambda values: (-torch.log10(values.clamp(1e-4, 1.0))).detach(),
+                mcolors.Normalize(vmin=0.0, vmax=4.0),
+                ticks=ticks,
+                ticklabels=ticklabels,
+            )
+        )
+    return figs
+
+
+def make_gt_roma_cycle_error_heatmap_log_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in pred or "cycle_error1" not in pred:
+        return []
+    ticks = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0, 75.0, 100.0]
+    ticklabels = ["0.25", "0.5", "1", "2", "5", "10", "20", "30", "50", "75", "100"]
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_dense_metric_custom_colormap_fig(
+                pred,
+                data,
+                "cycle_error",
+                i,
+                "cycle error (px)",
+                lambda values: values.clamp_min(0.25).detach(),
+                mcolors.LogNorm(vmin=0.25, vmax=100.0),
+                ticks=ticks,
+                ticklabels=ticklabels,
+            )
+        )
+    return figs
+
+
+def _make_sparse_metric_keypoints_fig(pred, data, key, idx, vmin, vmax, cbar_label):
+    title0 = _get_view_title(data, "view0", idx, "image0")
+    title1 = _get_view_title(data, "view1", idx, "image1")
+    fig, axes = plot_image_grid(
+        [[
+            _to_hwc_image(data["view0"]["image"][idx]),
+            _to_hwc_image(data["view1"]["image"][idx]),
+        ]],
+        titles=[[title0, title1]],
+        return_fig=True,
+        set_lim=True,
+        dpi=300,
+        pad=0.05,
+    )
+    fig.set_size_inches(fig.get_size_inches()[0] * 1.1, fig.get_size_inches()[1])
+    fig.subplots_adjust(right=0.86, top=0.95, bottom=0.03)
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    pad_mask0 = _get_pad_mask(data, "matches0")
+    pad_mask1 = _get_pad_mask(data, "matches1")
+    for view_idx, ax, pad_mask in zip((0, 1), axes[0], (pad_mask0, pad_mask1)):
+        kpts, values = _sample_dense_metric_at_keypoints(
+            pred, data, key, idx, view_idx, pad_mask
+        )
+        if values.numel():
+            ax.scatter(
+                kpts[:, 0].numpy(),
+                kpts[:, 1].numpy(),
+                c=values.numpy(),
+                cmap="turbo",
+                norm=norm,
+                s=4,
+                alpha=0.9,
+                linewidths=0,
+            )
+    sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+    sm.set_array([])
+    cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+    cbar = fig.colorbar(sm, cax=cax)
+    cbar.ax.tick_params(labelsize=6)
+    cbar.set_label(cbar_label, fontsize=7)
+    return fig
+
+
+def _make_sparse_metric_keypoints_custom_fig(
+    pred, data, key, idx, cbar_label, value_fn, norm, ticks=None, ticklabels=None
+):
+    title0 = _get_view_title(data, "view0", idx, "image0")
+    title1 = _get_view_title(data, "view1", idx, "image1")
+    fig, axes = plot_image_grid(
+        [[
+            _to_hwc_image(data["view0"]["image"][idx]),
+            _to_hwc_image(data["view1"]["image"][idx]),
+        ]],
+        titles=[[title0, title1]],
+        return_fig=True,
+        set_lim=True,
+        dpi=300,
+        pad=0.05,
+    )
+    fig.set_size_inches(fig.get_size_inches()[0] * 1.1, fig.get_size_inches()[1])
+    fig.subplots_adjust(right=0.86, top=0.95, bottom=0.03)
+    pad_mask0 = _get_pad_mask(data, "matches0")
+    pad_mask1 = _get_pad_mask(data, "matches1")
+    for view_idx, ax, pad_mask in zip((0, 1), axes[0], (pad_mask0, pad_mask1)):
+        kpts, values = _sample_dense_metric_at_keypoints(
+            pred, data, key, idx, view_idx, pad_mask
+        )
+        if values.numel():
+            values = value_fn(values)
+            ax.scatter(
+                kpts[:, 0].numpy(),
+                kpts[:, 1].numpy(),
+                c=values.numpy(),
+                cmap="turbo",
+                norm=norm,
+                s=4,
+                alpha=0.9,
+                linewidths=0,
+            )
+    sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+    sm.set_array([])
+    cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+    cbar = fig.colorbar(sm, cax=cax, ticks=ticks)
+    if ticklabels is not None:
+        cbar.ax.set_yticklabels(ticklabels)
+    cbar.ax.tick_params(labelsize=6)
+    cbar.set_label(cbar_label, fontsize=7)
+    return fig
+
+
+def make_gt_roma_keypoints_certainty_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_sparse_metric_keypoints_fig(
+                pred, data, "certainty", i, 0.0, 1.0, "certainty"
+            )
+        )
+    return figs
+
+
+def make_gt_roma_keypoints_cycle_error_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in pred or "cycle_error1" not in pred:
+        return []
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_sparse_metric_keypoints_fig(
+                pred, data, "cycle_error", i, 0.0, 5.0, "cycle error (px)"
+            )
+        )
+    return figs
+
+
+def make_gt_roma_keypoints_certainty_log_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    figs = []
+    ticks = [2.0, 3.0, 3.30103, 4.0, 5.0, 6.0]
+    ticklabels = ["0.01", "0.001", "0.0005", "0.0001", "0.00001", "0.000001"]
+    for i in range(n_pairs):
+        figs.append(
+            _make_sparse_metric_keypoints_custom_fig(
+                pred,
+                data,
+                "certainty",
+                i,
+                "-log10(certainty)",
+                lambda values: (-torch.log10(values.clamp(1e-6, 1e-2))).detach(),
+                mcolors.Normalize(vmin=2.0, vmax=6.0),
+                ticks=ticks,
+                ticklabels=ticklabels,
+            )
+        )
+    return figs
+
+
+def make_gt_roma_keypoints_cycle_error_log_figs(pred_, data_, n_pairs=2):
+    pred = batch_to_device(pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in pred or "cycle_error1" not in pred:
+        return []
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    ticks = [0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0, 75.0, 100.0]
+    ticklabels = ["0.25", "0.5", "1", "2", "5", "10", "20", "30", "50", "75", "100"]
+    figs = []
+    for i in range(n_pairs):
+        figs.append(
+            _make_sparse_metric_keypoints_custom_fig(
+                pred,
+                data,
+                "cycle_error",
+                i,
+                "cycle error (px)",
+                lambda values: values.clamp_min(0.25).detach(),
+                mcolors.LogNorm(vmin=0.25, vmax=100.0),
+                ticks=ticks,
+                ticklabels=ticklabels,
             )
         )
     return figs

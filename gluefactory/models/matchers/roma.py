@@ -503,9 +503,16 @@ if __name__ == "__main__":
     from ...utils.image import ImagePreprocessor
     from ...visualization.gt_visualize_matches import (
         make_gt_roma_certainty_heatmap_figs,
+        make_gt_roma_certainty_heatmap_log_figs,
+        make_gt_roma_certainty_heatmap_log_wide_figs,
         make_gt_roma_cycle_error_figs,
+        make_gt_roma_cycle_error_heatmap_log_figs,
         make_gt_roma_demo_figs,
         make_gt_roma_keypoints_figs,
+        make_gt_roma_keypoints_certainty_figs,
+        make_gt_roma_keypoints_certainty_log_figs,
+        make_gt_roma_keypoints_cycle_error_figs,
+        make_gt_roma_keypoints_cycle_error_log_figs,
         make_gt_roma_matches_certainty_figs,
         make_gt_roma_matches_certainty_intersection_figs,
         make_gt_roma_matches_cycle_error_figs,
@@ -614,6 +621,46 @@ if __name__ == "__main__":
         dpi=300,
     )
     plt.close(certainty_fig)
+    certainty_log_fig = make_gt_roma_certainty_heatmap_log_figs(
+        pred, data, n_pairs=1
+    )[0]
+    certainty_log_fig.savefig(
+        save_dir / "roma_certainty_heatmap_log.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(certainty_log_fig)
+    certainty_log_wide_fig = make_gt_roma_certainty_heatmap_log_wide_figs(
+        pred, data, n_pairs=1
+    )[0]
+    certainty_log_wide_fig.savefig(
+        save_dir / "roma_certainty_heatmap_log_wide.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(certainty_log_wide_fig)
+    keypoints_certainty_fig = make_gt_roma_keypoints_certainty_figs(
+        pred, data, n_pairs=1
+    )[0]
+    keypoints_certainty_fig.savefig(
+        save_dir / "roma_keypoints_certainty.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(keypoints_certainty_fig)
+    keypoints_certainty_log_fig = make_gt_roma_keypoints_certainty_log_figs(
+        pred, data, n_pairs=1
+    )[0]
+    keypoints_certainty_log_fig.savefig(
+        save_dir / "selection_hard_negatives.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+    )
+    plt.close(keypoints_certainty_log_fig)
 
     cycle_figs = make_gt_roma_cycle_error_figs(pred, data, n_pairs=1)
     if cycle_figs:
@@ -624,6 +671,39 @@ if __name__ == "__main__":
             dpi=300,
         )
         plt.close(cycle_figs[0])
+    cycle_log_figs = make_gt_roma_cycle_error_heatmap_log_figs(
+        pred, data, n_pairs=1
+    )
+    if cycle_log_figs:
+        cycle_log_figs[0].savefig(
+            save_dir / "roma_cycle_error_log.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
+        )
+        plt.close(cycle_log_figs[0])
+    keypoints_cycle_figs = make_gt_roma_keypoints_cycle_error_figs(
+        pred, data, n_pairs=1
+    )
+    if keypoints_cycle_figs:
+        keypoints_cycle_figs[0].savefig(
+            save_dir / "roma_keypoints_cycle_error.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
+        )
+        plt.close(keypoints_cycle_figs[0])
+    keypoints_cycle_log_figs = make_gt_roma_keypoints_cycle_error_log_figs(
+        pred, data, n_pairs=1
+    )
+    if keypoints_cycle_log_figs:
+        keypoints_cycle_log_figs[0].savefig(
+            save_dir / "roma_keypoints_cycle_error_log.png",
+            bbox_inches="tight",
+            pad_inches=0,
+            dpi=300,
+        )
+        plt.close(keypoints_cycle_log_figs[0])
 
     if "keypoints0" in pred:
         keypoints_fig = make_gt_roma_keypoints_figs(pred, data, n_pairs=1)[0]
