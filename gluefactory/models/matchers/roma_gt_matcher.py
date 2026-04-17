@@ -21,7 +21,6 @@ from ...visualization.gt_visualize_matches import (
     make_gt_roma_keypoints_cycle_error_figs,
     make_gt_roma_keypoints_cycle_error_log_figs,
     make_gt_roma_matches_certainty_figs,
-    make_gt_roma_matches_certainty_intersection_figs,
     make_gt_roma_matches_gt_cycle_error_figs,
     make_gt_roma_matches_pred_certainty_figs,
     make_gt_roma_matches_pred_certainty_intersection_figs,
@@ -201,9 +200,6 @@ def _save_roma_phase1_debug_outputs(roma_pred, gt, data, conf):
     matches_gt_certainty_figs = make_gt_roma_matches_certainty_figs(
         gt, data, n_pairs=n_pairs
     )
-    matches_gt_certainty_intersection_figs = (
-        make_gt_roma_matches_certainty_intersection_figs(gt, data, n_pairs=n_pairs)
-    )
     matches_pred_certainty_figs = make_gt_roma_matches_pred_certainty_figs(
         roma_pred, data, n_pairs=n_pairs
     )
@@ -263,10 +259,6 @@ def _save_roma_phase1_debug_outputs(roma_pred, gt, data, conf):
         )
         _save_named_figure(
             matches_gt_certainty_figs[idx], pair_dir / "matches_gt_certainty.png"
-        )
-        _save_named_figure(
-            matches_gt_certainty_intersection_figs[idx],
-            pair_dir / "matches_gt_certainty_intersection.png",
         )
         _save_named_figure(
             matches_pred_certainty_figs[idx], pair_dir / "matches_pred_certainty.png"
