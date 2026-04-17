@@ -390,9 +390,9 @@ def _make_sparse_metric_keypoints_fig(pred, data, key, idx, vmin, vmax, cbar_lab
         )
         if values.numel():
             ax.scatter(
-                kpts[:, 0].numpy(),
-                kpts[:, 1].numpy(),
-                c=values.numpy(),
+                kpts[:, 0].detach().numpy(),
+                kpts[:, 1].detach().numpy(),
+                c=values.detach().numpy(),
                 cmap="turbo",
                 norm=norm,
                 s=4,
@@ -435,9 +435,9 @@ def _make_sparse_metric_keypoints_custom_fig(
         if values.numel():
             values = value_fn(values)
             ax.scatter(
-                kpts[:, 0].numpy(),
-                kpts[:, 1].numpy(),
-                c=values.numpy(),
+                kpts[:, 0].detach().numpy(),
+                kpts[:, 1].detach().numpy(),
+                c=values.detach().numpy(),
                 cmap="turbo",
                 norm=norm,
                 s=4,
@@ -783,12 +783,12 @@ def make_gt_roma_matches_cycle_error_figs(pred_, data_, n_pairs=2):
             )
             cycle_scores0 = grid_sample(
                 pred["cycle_error0"][i : i + 1, None], coords0[:, None]
-            )[0, 0, 0].numpy()
+            )[0, 0, 0].detach().numpy()
             norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
             colors0 = [tuple(c) for c in cm.turbo(norm(cycle_scores0)).tolist()]
             plot_matches(
-                data["keypoints0"][i][idx0].numpy(),
-                data["keypoints1"][i][idx1].numpy(),
+                data["keypoints0"][i][idx0].detach().numpy(),
+                data["keypoints1"][i][idx1].detach().numpy(),
                 color=colors0,
                 axes=axes[0],
                 a=0.7,
@@ -805,12 +805,12 @@ def make_gt_roma_matches_cycle_error_figs(pred_, data_, n_pairs=2):
             )
             cycle_scores1 = grid_sample(
                 pred["cycle_error1"][i : i + 1, None], coords1[:, None]
-            )[0, 0, 0].numpy()
+            )[0, 0, 0].detach().numpy()
             norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
             colors1 = [tuple(c) for c in cm.turbo(norm(cycle_scores1)).tolist()]
             plot_matches(
-                data["keypoints0"][i][idx0_from_1].numpy(),
-                data["keypoints1"][i][idx1].numpy(),
+                data["keypoints0"][i][idx0_from_1].detach().numpy(),
+                data["keypoints1"][i][idx1].detach().numpy(),
                 color=colors1,
                 axes=axes[1],
                 a=0.7,
@@ -876,12 +876,12 @@ def make_gt_roma_matches_cycle_error_intersection_figs(pred_, data_, n_pairs=2):
             )
             cycle_scores0 = grid_sample(
                 pred["cycle_error0"][i : i + 1, None], coords0[:, None]
-            )[0, 0, 0].numpy()
+            )[0, 0, 0].detach().numpy()
             norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
             colors0 = [tuple(c) for c in cm.turbo(norm(cycle_scores0)).tolist()]
             plot_matches(
-                data["keypoints0"][i][idx0].numpy(),
-                data["keypoints1"][i][idx1].numpy(),
+                data["keypoints0"][i][idx0].detach().numpy(),
+                data["keypoints1"][i][idx1].detach().numpy(),
                 color=colors0,
                 axes=axes[0],
                 a=0.7,
@@ -893,11 +893,11 @@ def make_gt_roma_matches_cycle_error_intersection_figs(pred_, data_, n_pairs=2):
             )
             cycle_scores1 = grid_sample(
                 pred["cycle_error1"][i : i + 1, None], coords1[:, None]
-            )[0, 0, 0].numpy()
+            )[0, 0, 0].detach().numpy()
             colors1 = [tuple(c) for c in cm.turbo(norm(cycle_scores1)).tolist()]
             plot_matches(
-                data["keypoints0"][i][idx0].numpy(),
-                data["keypoints1"][i][idx1].numpy(),
+                data["keypoints0"][i][idx0].detach().numpy(),
+                data["keypoints1"][i][idx1].detach().numpy(),
                 color=colors1,
                 axes=axes[1],
                 a=0.7,
@@ -1138,6 +1138,107 @@ def make_gt_pos_neg_ign_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
 
     return figs
 
+
+def make_gt_pos_neg_ign_roma_figs(gt_, data_, n_pairs=2, pos_th=None, neg_th=None):
+    """Return per-pair RoMa GT figures using explicit GT category masks."""
+
+    gt = batch_to_device(gt_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+
+    view0, view1 = data["view0"], data["view1"]
+    n_pairs = min(n_pairs, view0["image"].shape[0])
+
+    kp0, kp1 = data["keypoints0"], data["keypoints1"]
+    pad_mask0 = data["keypoint_scores0"] > 0
+    pad_mask1 = data["keypoint_scores1"] > 0
+    overlap = data.get("overlap_0to1")
+
+    figs = []
+    for i in range(n_pairs):
+        imgs = [
+            view0["image"][i].permute(1, 2, 0),
+            view1["image"][i].permute(1, 2, 0),
+        ]
+        h, w = imgs[0].shape[:2]
+        figsize = (2 * w / 300, (h / 300) * 1.2)
+        fig, axes = plot_image_grid(
+            [imgs],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(figsize[0], figsize[1])
+
+        masks = {
+            "pos": (gt["mask_pos0"][i] & pad_mask0[i], gt["mask_pos1"][i] & pad_mask1[i]),
+            "neg_far": (
+                gt["mask_neg_far0"][i] & pad_mask0[i],
+                gt["mask_neg_far1"][i] & pad_mask1[i],
+            ),
+            "neg_unreliable": (
+                gt["mask_neg_unreliable0"][i] & pad_mask0[i],
+                gt["mask_neg_unreliable1"][i] & pad_mask1[i],
+            ),
+            "ign": (gt["mask_ign0"][i] & pad_mask0[i], gt["mask_ign1"][i] & pad_mask1[i]),
+        }
+        colors = {
+            "pos": "limegreen",
+            "neg_far": "#ffd400",
+            "neg_unreliable": "magenta",
+            "ign": "black",
+        }
+
+        for key in ["pos", "neg_far", "neg_unreliable", "ign"]:
+            plot_keypoints(
+                [kp0[i][masks[key][0]], kp1[i][masks[key][1]]],
+                axes=axes[0],
+                facecolors=[colors[key], colors[key]],
+                edgecolors=["none", "none"],
+                ps=[1, 1],
+            )
+
+        ov = overlap[i].item() if overlap is not None else float("nan")
+        title_parts = [
+            f"ov: {ov:.2f}",
+            f"pos_th: {pos_th:g}" if pos_th is not None else None,
+            f"neg_th: {neg_th:g}" if neg_th is not None else None,
+        ]
+        title_parts = [p for p in title_parts if p is not None]
+        line0 = " | ".join(title_parts)
+        line1 = (
+            f"IMG0-> KP: {int(pad_mask0[i].sum())}/"
+            f"{int(masks['pos'][0].sum())}/{int(masks['neg_far'][0].sum())}/"
+            f"{int(masks['neg_unreliable'][0].sum())}/{int(masks['ign'][0].sum())}"
+        )
+        line2 = (
+            f"IMG1-> KP: {int(pad_mask1[i].sum())}/"
+            f"{int(masks['pos'][1].sum())}/{int(masks['neg_far'][1].sum())}/"
+            f"{int(masks['neg_unreliable'][1].sum())}/{int(masks['ign'][1].sum())}"
+        )
+        fig.suptitle(
+            f"{line0}\n{line1}\n{line2}", fontsize=8, y=0.99, va="bottom"
+        )
+        fig.subplots_adjust(top=1.1)
+
+        legend_elements = [
+            Patch(facecolor="limegreen", edgecolor="none", label="GT pos"),
+            Patch(facecolor="#ffd400", edgecolor="none", label="GT neg far"),
+            Patch(facecolor="magenta", edgecolor="none", label="GT neg unreliable"),
+            Patch(facecolor="black", edgecolor="none", label="GT ign"),
+        ]
+        fig.legend(
+            handles=legend_elements,
+            loc="center left",
+            fontsize=5,
+            framealpha=0.7,
+            bbox_to_anchor=(1.02, 0.7),
+            ncol=1,
+        )
+        figs.append(fig)
+
+    return figs
+
 def make_gt_pos_figs(pred_, data_, n_pairs=2, pos_th=None):
     """Return a list of per-pair GT positive figures."""
     if "0to1" in pred_.keys():
@@ -1155,8 +1256,14 @@ def make_gt_pos_figs(pred_, data_, n_pairs=2, pos_th=None):
     val3D_mask1 = data.get("valid_3D_mask1")
     pad_mask0 = data.get("keypoint_scores0")
     pad_mask1 = data.get("keypoint_scores1")
-    map_pos0_mask = pred.get("plot_mask_pos_3d_map0", pred["mask_pos_3d_map0"])
-    reproj_pos0_mask = pred.get("plot_mask_pos_reproj0", pred["mask_pos_reproj0"])
+    if "mask_pos_3d_map0" in pred or "plot_mask_pos_3d_map0" in pred:
+        map_pos0_mask = pred.get("plot_mask_pos_3d_map0", pred["mask_pos_3d_map0"])
+        reproj_pos0_mask = pred.get("plot_mask_pos_reproj0", pred["mask_pos_reproj0"])
+        has_reproj_label = True
+    else:
+        map_pos0_mask = pred.get("plot_mask_pos0", pred["matches0"] > -1)
+        reproj_pos0_mask = torch.zeros_like(map_pos0_mask)
+        has_reproj_label = False
 
     if pad_mask0 is not None:
         pad_mask0 = pad_mask0 > 0
@@ -1227,16 +1334,21 @@ def make_gt_pos_figs(pred_, data_, n_pairs=2, pos_th=None):
             f"ov: {ov:.2f}",
             f"KP0 tot: {kp0_tot} KP0-3D: {kp0_3d}",
             f"KP1 tot: {kp1_tot} KP1-3D: {kp1_3d}",
-            f"GT_POS map+reproj: {map_pos}+{reproj_pos}",
+            (
+                f"GT_POS map+reproj: {map_pos}+{reproj_pos}"
+                if has_reproj_label
+                else f"GT_POS: {map_pos}"
+            ),
         ]
         if pos_th is not None:
             title_parts.append(f"pos_th: {pos_th:g}")
         fig.suptitle(" | ".join(title_parts), fontsize=8, y=0.99, va="bottom")
         fig.subplots_adjust(top=1.02)
-        legend_elements = [
-            Patch(facecolor='limegreen', edgecolor='none', label='GT pos map'),
-            Patch(facecolor='purple', edgecolor='none', label='GT pos reproj'),
-        ]
+        legend_elements = [Patch(facecolor='limegreen', edgecolor='none', label='GT pos')]
+        if has_reproj_label:
+            legend_elements.append(
+                Patch(facecolor='purple', edgecolor='none', label='GT pos reproj')
+            )
         fig.legend(
             handles=legend_elements,
             loc='center left',

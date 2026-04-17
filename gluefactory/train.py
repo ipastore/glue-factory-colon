@@ -29,6 +29,7 @@ from .models.utils.metrics import matcher_metrics
 from .visualization.gt_visualize_matches import (
     make_gt_pos_figs,
     make_gt_pos_neg_ign_figs,
+    make_gt_pos_neg_ign_roma_figs,
 )
 from .utils.experiments import get_best_checkpoint, get_last_checkpoint, save_experiment, verify_checkpoint_loading
 from .utils.stdout_capturing import capture_outputs
@@ -443,6 +444,8 @@ def generate_gt_figures_for_batch(
             batch = {**batch, "matches0": gt_values["matches0"].long()}
         if "matches1" not in batch and "matches1" in gt_values:
             batch = {**batch, "matches1": gt_values["matches1"].long()}
+        if "mask_pos0" in gt_values:
+            fig_fn = make_gt_pos_neg_ign_roma_figs
     return fig_fn(gt_values, batch, **fig_kwargs)
 
 

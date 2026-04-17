@@ -318,7 +318,7 @@ class TwoViewPipeline(BaseModel):
         if self.conf.ground_truth.name and self.conf.run_gt_in_forward:
             gt_pred = self.ground_truth({**data, **pred})
             pred.update({f"gt_{k}": v for k, v in gt_pred.items()})
-        pred = self._apply_keypoint_rotation(pred, data)
+        pred = self._apply_keypoint_rotation(pred, data) #Only for  sparse_endomapper (maybe to be erased)
         matcher_time_ms = None
         matcher_memory_mb = None
         matcher_allocated_peak_mb = None

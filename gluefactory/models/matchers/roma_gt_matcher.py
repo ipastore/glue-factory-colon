@@ -26,6 +26,7 @@ from ...visualization.gt_visualize_matches import (
     make_gt_roma_matches_cycle_error_intersection_figs,
     make_gt_roma_raw_figs,
     make_gt_pos_neg_ign_figs,
+    make_gt_pos_neg_ign_roma_figs,
     make_gt_pos_figs,
 )
 
@@ -127,9 +128,10 @@ def _build_roma_pair_report(idx, name, roma_pred, gt, data, conf):
         f"image0_shape_chw: {tuple(image0.shape)}",
         f"image1_shape_chw: {tuple(image1.shape)}",
         "[roma_conf]",
-        f"filter_threshold: {conf.roma.filter_threshold}",
-        f"max_kp_error: {conf.roma.max_kp_error}",
-        f"mutual_check: {bool(conf.roma.mutual_check)}",
+        f"pos_cert_th: {conf.roma.pos_cert_th}",
+        f"pos_cycle_error_th: {conf.roma.pos_cycle_error_th}",
+        f"neg_cert_th: {conf.roma.neg_cert_th}",
+        f"neg_cycle_error_th: {conf.roma.neg_cycle_error_th}",
         f"symmetric: {bool(conf.roma.symmetric)}",
         f"add_cycle_error: {bool(conf.roma.add_cycle_error)}",
     ]
@@ -290,12 +292,10 @@ class RomaGTMatcher(BaseModel):
             "sample": False,
             "mixed_precision": True,
             "add_cycle_error": False,
-            "sample_num_matches": 0,
-            "sample_mode": "threshold_balanced",
-            "filter_threshold": 0.05,
-            "cycle_error_threshold": None,
-            "max_kp_error": 2.0,
-            "mutual_check": True,
+            "pos_cert_th": None,
+            "pos_cycle_error_th": None,
+            "neg_cert_th": None,
+            "neg_cycle_error_th": None,
         },
     }
     required_data_keys = ["view0", "view1", "keypoints0", "keypoints1"]
@@ -318,12 +318,20 @@ class RomaGTMatcher(BaseModel):
             data["keypoints0"],
             data["keypoints1"],
             data,
-            matches0=roma_pred["matches0"],
-            matches1=roma_pred["matches1"],
-            matching_scores0=roma_pred.get("matching_scores0"),
-            matching_scores1=roma_pred.get("matching_scores1"),
             valid0=valid0,
             valid1=valid1,
+            warp0=roma_pred["warp0"],
+            warp1=roma_pred["warp1"],
+            certainty0=roma_pred["certainty0"],
+            certainty1=roma_pred["certainty1"],
+            cycle_error0=roma_pred.get("cycle_error0"),
+            cycle_error1=roma_pred.get("cycle_error1"),
+            pos_th=self.conf.th_positive,
+            neg_th=self.conf.th_negative,
+            pos_cert_th=self.conf.roma.pos_cert_th,
+            pos_cycle_error_th=self.conf.roma.pos_cycle_error_th,
+            neg_cert_th=self.conf.roma.neg_cert_th,
+            neg_cycle_error_th=self.conf.roma.neg_cycle_error_th,
         )
         if self.conf.save_fig_when_debug:
             if "image" in data["view0"] and "image" in data["view1"]:
@@ -334,7 +342,7 @@ class RomaGTMatcher(BaseModel):
                     data.get("names", data.get("idx", "pair")),
                     num_figs=data["keypoints0"].shape[0],
                 )
-                figs = make_gt_pos_neg_ign_figs(
+                figs = make_gt_pos_neg_ign_roma_figs(
                     gt,
                     data,
                     n_pairs=data["keypoints0"].shape[0],

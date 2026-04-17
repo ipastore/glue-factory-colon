@@ -5,6 +5,7 @@ from scipy.optimize import linear_sum_assignment
 from .depth import project, sample_depth
 from .epipolar import T_to_E, sym_epipolar_distance_all
 from .homography import warp_points_torch
+from ..utils.image import denormalize_coords, grid_sample, normalize_coords
 
 IGNORE_FEATURE = -2
 UNMATCHED_FEATURE = -1
@@ -67,8 +68,8 @@ def gt_matches_from_roma(kp0, kp1, data=None, **kw):
         m0 = -torch.ones_like(kp0[:, :, 0]).long()
         m1 = -torch.ones_like(kp1[:, :, 0]).long()
         reward = torch.zeros_like(assignment, dtype=torch.float32)
-        z0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
-        z1 = torch.zeros(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
+        empty0 = torch.zeros(kp0.shape[:2], dtype=torch.bool, device=kp0.device)
+        empty1 = torch.zeros(kp1.shape[:2], dtype=torch.bool, device=kp1.device)
         return {
             "assignment": assignment,
             "reward": reward,
@@ -76,73 +77,171 @@ def gt_matches_from_roma(kp0, kp1, data=None, **kw):
             "matches1": m1,
             "matching_scores0": (m0 > -1).float(),
             "matching_scores1": (m1 > -1).float(),
-            "mask_pos_3d_map0": z0,
-            "mask_pos_3d_map1": z1,
-            "mask_pos_reproj0": z0,
-            "mask_pos_reproj1": z1,
-            "mask_neg_reproj0": z0,
-            "mask_neg_reproj1": z1,
-            "mask_neg_epi0": z0,
-            "mask_neg_epi1": z1,
+            "mask_pos0": empty0,
+            "mask_pos1": empty1,
+            "mask_neg_far0": empty0,
+            "mask_neg_far1": empty1,
+            "mask_neg_unreliable0": empty0,
+            "mask_neg_unreliable1": empty1,
+            "mask_ign0": empty0,
+            "mask_ign1": empty1,
+            "proj_0to1": torch.empty_like(kp0),
+            "proj_1to0": torch.empty_like(kp1),
+            "certainty_kp0": kp0[:, :, 0].float(),
+            "certainty_kp1": kp1[:, :, 0].float(),
+            "cycle_error_kp0": kp0[:, :, 0].float(),
+            "cycle_error_kp1": kp1[:, :, 0].float(),
         }
 
-    if "matches0" not in kw or "matches1" not in kw:
-        raise ValueError("gt_matches_from_roma requires matches0 and matches1.")
-
-    matches0 = kw["matches0"].long()
-    matches1 = kw["matches1"].long()
-    scores0 = kw.get("matching_scores0")
-    scores1 = kw.get("matching_scores1")
     valid0 = kw.get("valid0")
     valid1 = kw.get("valid1")
-
-    if scores0 is None or scores1 is None:
-        raise ValueError(
-            "gt_matches_from_roma requires matching_scores0 and matching_scores1."
-        )
     if valid0 is None or valid1 is None:
         raise ValueError("gt_matches_from_roma requires valid0 and valid1.")
+    warp0 = kw.get("warp0")
+    warp1 = kw.get("warp1")
+    certainty0 = kw.get("certainty0")
+    certainty1 = kw.get("certainty1")
+    cycle_error0 = kw.get("cycle_error0")
+    cycle_error1 = kw.get("cycle_error1")
+    pos_th = kw.get("pos_th")
+    neg_th = kw.get("neg_th")
+    pos_cert_th = kw.get("pos_cert_th")
+    pos_cycle_error_th = kw.get("pos_cycle_error_th")
+    neg_cert_th = kw.get("neg_cert_th")
+    neg_cycle_error_th = kw.get("neg_cycle_error_th")
 
-    n0, n1 = kp0.shape[1], kp1.shape[1]
-    valid_match0 = (matches0 >= 0) & valid0
-    valid_match1 = (matches1 >= 0) & valid1
+    if warp0 is None or warp1 is None or certainty0 is None or certainty1 is None:
+        raise ValueError(
+            "gt_matches_from_roma requires warp0/1 and certainty0/1 dense tensors."
+        )
+    if pos_th is None or neg_th is None:
+        raise ValueError("gt_matches_from_roma requires pos_th and neg_th.")
+    if (
+        (pos_cycle_error_th is not None or neg_cycle_error_th is not None)
+        and (cycle_error0 is None or cycle_error1 is None)
+    ):
+        raise ValueError(
+            "gt_matches_from_roma requires cycle_error0/1 when cycle thresholds are set."
+        )
 
-    assignment = torch.zeros(
-        kp0.shape[0], n0, n1, dtype=torch.bool, device=kp0.device
-    )
-    assignment.scatter_(
-        2,
-        matches0.clamp(min=0).unsqueeze(-1),
-        valid_match0.unsqueeze(-1),
-    )
-    assignment = assignment & valid0.unsqueeze(-1) & valid1.unsqueeze(-2)
+    def sample_dense(kpts, dense, q_hw, output_hw=None):
+        sampled = grid_sample(
+            dense[:, None] if dense.ndim == 3 else dense.permute(0, 3, 1, 2),
+            normalize_coords(kpts, q_hw)[:, None],
+        )[:, :, 0].transpose(1, 2)
+        if output_hw is not None:
+            sampled = denormalize_coords(sampled, output_hw)
+        return sampled.squeeze(-1) if sampled.shape[-1] == 1 else sampled
+
+    img0_hw = data["view0"]["image"].shape[-2:]
+    img1_hw = data["view1"]["image"].shape[-2:]
+    proj_0to1 = sample_dense(kp0, warp0, img0_hw, output_hw=img1_hw)
+    proj_1to0 = sample_dense(kp1, warp1, img1_hw, output_hw=img0_hw)
+    certainty_kp0 = sample_dense(kp0, certainty0, img0_hw)
+    certainty_kp1 = sample_dense(kp1, certainty1, img1_hw)
+    if cycle_error0 is not None and cycle_error1 is not None:
+        cycle_kp0 = sample_dense(kp0, cycle_error0, img0_hw)
+        cycle_kp1 = sample_dense(kp1, cycle_error1, img1_hw)
+    else:
+        cycle_kp0 = torch.zeros_like(certainty_kp0)
+        cycle_kp1 = torch.zeros_like(certainty_kp1)
+
+    valid_proj0 = torch.isfinite(proj_0to1).all(dim=-1)
+    valid_proj1 = torch.isfinite(proj_1to0).all(dim=-1)
+    valid_cert0 = torch.isfinite(certainty_kp0)
+    valid_cert1 = torch.isfinite(certainty_kp1)
+    valid_cycle0 = torch.isfinite(cycle_kp0)
+    valid_cycle1 = torch.isfinite(cycle_kp1)
+
+    valid_pos0 = valid0 & valid_proj0 & valid_cert0
+    valid_pos1 = valid1 & valid_proj1 & valid_cert1
+    if pos_cert_th is not None:
+        valid_pos0 = valid_pos0 & (certainty_kp0 > pos_cert_th)
+        valid_pos1 = valid_pos1 & (certainty_kp1 > pos_cert_th)
+    if pos_cycle_error_th is not None:
+        valid_pos0 = valid_pos0 & valid_cycle0 & (cycle_kp0 < pos_cycle_error_th)
+        valid_pos1 = valid_pos1 & valid_cycle1 & (cycle_kp1 < pos_cycle_error_th)
+
+    dist0 = torch.sum((proj_0to1.unsqueeze(-2) - kp1.unsqueeze(-3)) ** 2, -1)
+    dist1 = torch.sum((kp0.unsqueeze(-2) - proj_1to0.unsqueeze(-3)) ** 2, -1)
+    dist = torch.maximum(dist0, dist1)
+    inf = dist.new_tensor(float("inf"))
+    valid_pair = valid_pos0.unsqueeze(-1) & valid_pos1.unsqueeze(-2)
+    dist = torch.where(valid_pair, dist, inf)
 
     unmatched = kp0.new_tensor(UNMATCHED_FEATURE, dtype=torch.long)
     ignore = kp0.new_tensor(IGNORE_FEATURE, dtype=torch.long)
-
     m0 = torch.full(kp0.shape[:2], ignore, device=kp0.device, dtype=torch.long)
     m1 = torch.full(kp1.shape[:2], ignore, device=kp1.device, dtype=torch.long)
+    positive = torch.zeros_like(dist, dtype=torch.bool)
 
-    m0 = torch.where(valid0, unmatched, m0)
-    m1 = torch.where(valid1, unmatched, m1)
-    m0 = torch.where(valid_match0, matches0, m0)
-    m1 = torch.where(valid_match1, matches1, m1)
+    min0 = dist.min(-1).indices
+    min1 = dist.min(-2).indices
+    ismin0 = torch.zeros(dist.shape, dtype=torch.bool, device=dist.device)
+    ismin1 = ismin0.clone()
+    ismin0.scatter_(-1, min0.unsqueeze(-1), value=1)
+    ismin1.scatter_(-2, min1.unsqueeze(-2), value=1)
+    positive_dist = ismin0 & ismin1 & (dist < pos_th**2)
+    positive = positive | positive_dist
+    m0 = torch.where((m0 == ignore) & positive_dist.any(-1), min0, m0)
+    m1 = torch.where((m1 == ignore) & positive_dist.any(-2), min1, m1)
+
+    assignment = positive
+    pos0 = positive_dist.any(-1)
+    pos1 = positive_dist.any(-2)
+
+    neg_far0 = torch.zeros_like(valid0)
+    neg_far1 = torch.zeros_like(valid1)
+    dist0_valid = torch.where(valid_pos1.unsqueeze(-2), dist0, inf)
+    dist1_valid = torch.where(valid_pos0.unsqueeze(-1), dist1, inf)
+    neg_far0 = valid_pos0 & (dist0_valid.min(-1).values > neg_th**2)
+    neg_far1 = valid_pos1 & (dist1_valid.min(-2).values > neg_th**2)
+
+    neg_unreliable0 = torch.zeros_like(valid0)
+    neg_unreliable1 = torch.zeros_like(valid1)
+    if neg_cert_th is not None and neg_cycle_error_th is not None:
+        neg_unreliable0 = (
+            valid0
+            & valid_cert0
+            & valid_cycle0
+            & (certainty_kp0 < neg_cert_th)
+            & (cycle_kp0 > neg_cycle_error_th)
+        )
+        neg_unreliable1 = (
+            valid1
+            & valid_cert1
+            & valid_cycle1
+            & (certainty_kp1 < neg_cert_th)
+            & (cycle_kp1 > neg_cycle_error_th)
+        )
+
+    neg0 = (neg_far0 | neg_unreliable0) & ~pos0
+    neg1 = (neg_far1 | neg_unreliable1) & ~pos1
+    m0 = torch.where(neg0, unmatched, m0)
+    m1 = torch.where(neg1, unmatched, m1)
 
     out_scores0 = torch.where(
-        m0 > -1, scores0.to(dtype=kp0.dtype), torch.zeros_like(scores0, dtype=kp0.dtype)
+        pos0, certainty_kp0.to(dtype=kp0.dtype), torch.zeros_like(certainty_kp0, dtype=kp0.dtype)
     )
     out_scores1 = torch.where(
-        m1 > -1, scores1.to(dtype=kp1.dtype), torch.zeros_like(scores1, dtype=kp1.dtype)
+        pos1, certainty_kp1.to(dtype=kp1.dtype), torch.zeros_like(certainty_kp1, dtype=kp1.dtype)
     )
 
-    reward = assignment.float()
-       
-    reward = reward * scores0.to(dtype=reward.dtype).unsqueeze(-1)
-
-    pos0 = assignment.any(-1)
-    pos1 = assignment.any(-2)
-    neg0 = valid0 & ~pos0
-    neg1 = valid1 & ~pos1
+    reward_pos = torch.zeros_like(dist, dtype=kp0.dtype)
+    reward_pos = torch.where(
+        valid_pair & (dist < pos_th**2),
+        torch.ones_like(dist, dtype=kp0.dtype),
+        reward_pos,
+    )
+    reward_neg = torch.zeros_like(dist, dtype=kp0.dtype)
+    reward_neg = torch.where(
+        valid_pair & (dist > neg_th**2),
+        torch.ones_like(dist, dtype=kp0.dtype),
+        reward_neg,
+    )
+    reward = torch.maximum(reward_pos, assignment.float()) - reward_neg
+    ign0 = valid0 & ~pos0 & ~neg0
+    ign1 = valid1 & ~pos1 & ~neg1
     z0 = torch.zeros_like(valid0)
     z1 = torch.zeros_like(valid1)
 
@@ -153,14 +252,20 @@ def gt_matches_from_roma(kp0, kp1, data=None, **kw):
         "matches1": m1,
         "matching_scores0": out_scores0,
         "matching_scores1": out_scores1,
-        "mask_pos_3d_map0": z0,    # Compatibility with gt_matches_from_pose_sparse_dense_map
-        "mask_pos_3d_map1": z1,    # Compatibility with gt_matches_from_pose_sparse_dense_map
-        "mask_pos_reproj0": pos0,
-        "mask_pos_reproj1": pos1,
-        "mask_neg_reproj0": neg0,
-        "mask_neg_reproj1": neg1,
-        "mask_neg_epi0": z0,       # Compatibility with gt_matches_from_pose_sparse_dense_map
-        "mask_neg_epi1": z1,       # Compatibility with gt_matches_from_pose_sparse_dense_map
+        "mask_pos0": valid_pos0,
+        "mask_pos1": valid_pos1,
+        "mask_neg_far0": neg_far0,
+        "mask_neg_far1": neg_far1,
+        "mask_neg_unreliable0": neg_unreliable0,
+        "mask_neg_unreliable1": neg_unreliable1,
+        "mask_ign0": ign0,
+        "mask_ign1": ign1,
+        "proj_0to1": proj_0to1,
+        "proj_1to0": proj_1to0,
+        "certainty_kp0": certainty_kp0,
+        "certainty_kp1": certainty_kp1,
+        "cycle_error_kp0": cycle_kp0,
+        "cycle_error_kp1": cycle_kp1,
     }
 
 @torch.no_grad()

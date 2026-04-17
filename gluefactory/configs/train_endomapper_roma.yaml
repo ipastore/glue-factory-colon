@@ -54,22 +54,23 @@ model:
 
     ground_truth:
         name:  matchers.roma_gt_matcher #TODO add config for roma gt matcher
-        save_fig_when_debug: false
+        save_fig_when_debug: true
+        th_positive: 3.0
+        th_negative: 5.0
         roma:
             name: matchers.roma
             weights: outdoor
-            upsample_preds: true #debug false
-            symmetric: true #debug false
-            internal_hw: [532, 714] #[532, 714] [546 x 728]  original size [540,720] [224,224] debug
+            upsample_preds: false #debug false
+            symmetric: false #debug false
+            internal_hw: [224, 224] #[532, 714] [546 x 728]  original size [540,720] [224,224] debug
             output_hw: null
             sample: false
             mixed_precision: true
-            add_cycle_error: false
-            sample_num_matches: 0
-            sample_mode: threshold_balanced
-            filter_threshold: 0.05
-            max_kp_error: 2.0
-            mutual_check: true
+            add_cycle_error: true
+            pos_cert_th: 0.05
+            pos_cycle_error_th: 2.0
+            neg_cert_th: 0.0005
+            neg_cycle_error_th: 20.0
     allow_no_extract: true
     run_gt_in_forward: true
 
