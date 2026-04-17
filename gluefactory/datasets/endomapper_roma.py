@@ -21,6 +21,7 @@ from ..utils.tools import fork_rng
 from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
 from .utils import rotate_intrinsics, rotate_pose_inplane, scale_intrinsics
+from ..models.utils.misc import pad_to_length
 
 
 
@@ -148,6 +149,9 @@ class _PairDataset(torch.utils.data.Dataset):
         # self.valid_3d_mask: Dict[str, np.ndarray] = {}
         self.cameras = {}
         self.camera_indices: Dict[str, np.ndarray] = {}
+        self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
+        self.colmap_xys_per_image: Dict[str, np.ndarray] = {}
+        self.max_num_colmap_observations = 0
 
 
         self.seqs_maps = []
@@ -177,6 +181,20 @@ class _PairDataset(torch.utils.data.Dataset):
                     )
                     self.cameras[seq_map] = data_npz["cameras"]
                     self.camera_indices[seq_map] = data_npz["camera_indices"]
+                    self.point3D_ids_per_image[seq_map] = data_npz[
+                        "point3D_ids_per_image"
+                    ]
+                    self.colmap_xys_per_image[seq_map] = data_npz[
+                        "colmap_xys_per_image"
+                    ]
+                    seq_max_colmap = max(
+                        (len(ids) for ids in self.point3D_ids_per_image[seq_map]),
+                        default=0,
+                    )
+                    self.max_num_colmap_observations = max(
+                        self.max_num_colmap_observations,
+                        seq_max_colmap,
+                    )
 
 
             except Exception:
@@ -375,6 +393,11 @@ class _PairDataset(torch.utils.data.Dataset):
         T = self.poses[seq_map][idx].astype(np.float32, copy=False)
         K = self.intrinsics[seq_map][idx].astype(np.float32, copy=True)
         camera = self._load_camera(seq_map, idx)
+        colmap_xys = torch.from_numpy(
+            self.colmap_xys_per_image[seq_map][idx]
+        ).float()
+        point3D_ids = torch.from_numpy(self.point3D_ids_per_image[seq_map][idx]).long()
+        valid_3D_mask = point3D_ids != -1
 
         name = str(self.image_names[seq_map][idx])
         image_size = torch.tensor(self.image_sizes[seq_map][idx]).float()
@@ -420,6 +443,19 @@ class _PairDataset(torch.utils.data.Dataset):
         }
         if image is not None:
             data["image"] = image
+        if self.max_num_colmap_observations > 0:
+            data["colmap_xys"] = pad_to_length(
+                colmap_xys, self.max_num_colmap_observations, -2, mode="zeros"
+            )
+            data["point3D_ids"] = pad_to_length(
+                point3D_ids, self.max_num_colmap_observations, -1, mode="minus_one"
+            )
+            data["valid_3D_mask"] = pad_to_length(
+                valid_3D_mask,
+                self.max_num_colmap_observations,
+                -1,
+                mode=False,
+            )
         
         data["scales"] = np.array([1.0, 1.0], dtype=np.float32)
 

@@ -28,6 +28,7 @@ from ...visualization.gt_visualize_matches import (
     make_gt_pos_neg_ign_figs,
     make_gt_pos_neg_ign_roma_figs,
     make_gt_pos_figs,
+    make_gt_pos_sparse_map_figs,
 )
 
 # Hacky workaround for torch.amp.custom_fwd to support older versions of PyTorch.
@@ -360,6 +361,13 @@ class RomaGTMatcher(BaseModel):
                 )
                 pos_dir = base_dir / "seq_map_gt_pos"
                 _save_figures(gt_pos_figs, names, pos_dir)
+                gt_pos_sparse_map_figs = make_gt_pos_sparse_map_figs(
+                    gt,
+                    data,
+                    n_pairs=data["keypoints0"].shape[0],
+                )
+                sparse_pos_dir = base_dir / "seq_map_gt_pos_sparse_map"
+                _save_figures(gt_pos_sparse_map_figs, names, sparse_pos_dir)
                 _save_roma_phase1_debug_outputs(roma_pred, gt, data, self.conf)
         return gt
 

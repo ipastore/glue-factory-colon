@@ -1360,3 +1360,87 @@ def make_gt_pos_figs(pred_, data_, n_pairs=2, pos_th=None):
         figs.append(fig)
 
     return figs
+
+
+def make_gt_pos_sparse_map_figs(pred_, data_, n_pairs=2, pos_th=None):
+    del pred_, pos_th
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+
+    view0, view1 = data["view0"], data["view1"]
+    if "colmap_xys" not in view0 or "colmap_xys" not in view1:
+        return []
+
+    n_pairs = min(n_pairs, view0["image"].shape[0])
+    figs = []
+    overlap = data.get("overlap_0to1")
+
+    for i in range(n_pairs):
+        colmap_xys0 = view0["colmap_xys"][i]
+        colmap_xys1 = view1["colmap_xys"][i]
+        point3d_ids0 = view0["point3D_ids"][i]
+        point3d_ids1 = view1["point3D_ids"][i]
+        valid0 = view0.get("valid_3D_mask")
+        valid1 = view1.get("valid_3D_mask")
+        if valid0 is None:
+            valid0 = point3d_ids0 != -1
+        else:
+            valid0 = valid0[i] & (point3d_ids0 != -1)
+        if valid1 is None:
+            valid1 = point3d_ids1 != -1
+        else:
+            valid1 = valid1[i] & (point3d_ids1 != -1)
+
+        ids0 = point3d_ids0[valid0]
+        ids1 = point3d_ids1[valid1]
+        xys0 = colmap_xys0[valid0]
+        xys1 = colmap_xys1[valid1]
+        shared_ids, idx0, idx1 = np.intersect1d(
+            ids0.numpy(), ids1.numpy(), return_indices=True
+        )
+
+        imgs = [
+            view0["image"][i].permute(1, 2, 0),
+            view1["image"][i].permute(1, 2, 0),
+        ]
+        h, w = imgs[0].shape[:2]
+        figsize = (2 * w / 300, (h / 300) * 1.2)
+        fig, axes = plot_image_grid(
+            [imgs],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(figsize[0], figsize[1])
+
+        if len(shared_ids):
+            plot_matches(
+                xys0[idx0].numpy(),
+                xys1[idx1].numpy(),
+                color="limegreen",
+                axes=axes[0],
+                a=0.5,
+                lw=0.5,
+                ps=0.5,
+            )
+
+        ov = overlap[i].item() if overlap is not None else float("nan")
+        title_parts = [
+            f"ov: {ov:.2f}",
+            f"COLMAP0 valid: {int(valid0.sum())}",
+            f"COLMAP1 valid: {int(valid1.sum())}",
+            f"GT_POS sparse_map: {len(shared_ids)}",
+        ]
+        fig.suptitle(" | ".join(title_parts), fontsize=8, y=0.99, va="bottom")
+        fig.subplots_adjust(top=1.02)
+        fig.legend(
+            handles=[Patch(facecolor="limegreen", edgecolor="none", label="GT pos sparse map")],
+            loc="center left",
+            fontsize=6,
+            framealpha=0.7,
+            bbox_to_anchor=(1.02, 0.8),
+            ncol=1,
+        )
+        figs.append(fig)
+
+    return figs

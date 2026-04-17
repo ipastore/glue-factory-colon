@@ -83,6 +83,8 @@ train:
     # Write into tb gt figures
     log_gt_pos_val_once: true
     log_gt_pos_overfit_once: true
+    log_gt_pos_sparse_map_val_once: true
+    log_gt_pos_sparse_map_overfit_once: true
     log_gt_pos_neg_ign_val_once: true
     log_gt_pos_neg_ign_overfit_once: true
 

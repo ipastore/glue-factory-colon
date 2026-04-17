@@ -30,6 +30,7 @@ from .visualization.gt_visualize_matches import (
     make_gt_pos_figs,
     make_gt_pos_neg_ign_figs,
     make_gt_pos_neg_ign_roma_figs,
+    make_gt_pos_sparse_map_figs,
 )
 from .utils.experiments import get_best_checkpoint, get_last_checkpoint, save_experiment, verify_checkpoint_loading
 from .utils.stdout_capturing import capture_outputs
@@ -87,6 +88,8 @@ default_train_conf = {
     "eval_overlap_bins_include_overall": True,
     "log_gt_pos_val_once": False,
     "log_gt_pos_overfit_once": False,
+    "log_gt_pos_sparse_map_val_once": False,
+    "log_gt_pos_sparse_map_overfit_once": False,
     "log_gt_pos_neg_ign_val_once": False,
     "log_gt_pos_neg_ign_overfit_once": False,
 }
@@ -755,6 +758,25 @@ def training(rank, conf, output_dir, args):
                         names=names,
                     )
                 gt_pos_val_logged = True
+            if conf.train.log_gt_pos_sparse_map_val_once:
+                val_sparse_gt = generate_gt_figures(
+                    model,
+                    val_loader,
+                    device,
+                    make_gt_pos_sparse_map_figs,
+                    plot_ids_static,
+                    n,
+                    n_pairs=plot_n_pairs,
+                )
+                for names, gt_pos_sparse_map_figs in val_sparse_gt:
+                    log_gt_pos_figures(
+                        writer,
+                        gt_pos_sparse_map_figs,
+                        output_dir / "gt_pos_sparse_map_val",
+                        "gt_pos_sparse_map_val",
+                        0,
+                        names=names,
+                    )
             if (
                 conf.train.log_gt_pos_neg_ign_val_once
                 and not gt_pos_neg_ign_val_logged
@@ -835,6 +857,25 @@ def training(rank, conf, output_dir, args):
                             names=names,
                         )
                     gt_pos_overfit_logged = True
+                if conf.train.log_gt_pos_sparse_map_overfit_once:
+                    overfit_sparse_gt = generate_gt_figures(
+                        model,
+                        overfit_loader,
+                        device,
+                        make_gt_pos_sparse_map_figs,
+                        plot_ids_overfit,
+                        n,
+                        n_pairs=plot_n_pairs,
+                    )
+                    for names, gt_pos_sparse_map_figs in overfit_sparse_gt:
+                        log_gt_pos_figures(
+                            writer,
+                            gt_pos_sparse_map_figs,
+                            output_dir / "gt_pos_sparse_map_overfit",
+                            "gt_pos_sparse_map_overfit",
+                            0,
+                            names=names,
+                        )
                 if (
                     conf.train.log_gt_pos_neg_ign_overfit_once
                     and not gt_pos_neg_ign_overfit_logged

@@ -240,6 +240,7 @@ def process_sequence(
     # orientations_list: List[np.ndarray] = []
     # scores_list: List[np.ndarray] = []
     point3d_ids_list: List[np.ndarray] = []
+    colmap_xys_list: List[np.ndarray] = []
     # valid_depth_mask_list: List[np.ndarray] = []
     # valid_3d_mask_list: List[np.ndarray] = []
 
@@ -270,6 +271,7 @@ def process_sequence(
         # ) = build_feature_depth_arrays(feature_data, depth_data)
 
         point3d_ids = image.point3D_ids
+        colmap_xys = image.xys
 
         # valid_depth_mask = depth_values != MISSING_DEPTH_VALUE
         # valid_3d_mask = point3d_ids != -1
@@ -281,6 +283,7 @@ def process_sequence(
         # orientations_list.append(orientations)
         # scores_list.append(scores)
         point3d_ids_list.append(point3d_ids)
+        colmap_xys_list.append(colmap_xys)
         # valid_depth_mask_list.append(valid_depth_mask)
         # valid_3d_mask_list.append(valid_3d_mask)
     
@@ -309,7 +312,8 @@ def process_sequence(
         # scales_per_image=np.array(scales_list, dtype=object),
         # orientations_per_image=np.array(orientations_list, dtype=object),
         # scores_per_image=np.array(scores_list, dtype=object),
-        # point3D_ids_per_image=np.array(point3d_ids_list, dtype=object),
+        point3D_ids_per_image=np.array(point3d_ids_list, dtype=object),
+        colmap_xys_per_image=np.array(colmap_xys_list, dtype=object),
         # valid_depth_mask_per_image=np.array(valid_depth_mask_list, dtype=object),
         # valid_3d_mask_per_image=np.array(valid_3d_mask_list, dtype=object),
         # point3D_ids=point3d_ids_all,
