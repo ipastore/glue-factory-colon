@@ -108,6 +108,7 @@ def do_evaluation(
     baseline_model=None,
     plot_ids=None,
     baseline_preds=None,
+    official_baseline_preds=None,
     baseline_store=None,
     plot_kwargs=None,
     log_metrics_path=None,
@@ -188,6 +189,9 @@ def do_evaluation(
                     oob_pred = baseline_model(data)
                 if plot_requires_oob and baseline_preds is not None:
                     oob_pred = baseline_preds.get(i, oob_pred)
+                official_pred = None
+                if plot_requires_oob and official_baseline_preds is not None:
+                    official_pred = official_baseline_preds.get(i)
                 gt_values = {
                     k[len("gt_") :]: v for k, v in pred.items() if k.startswith("gt_")
                 }
@@ -199,6 +203,7 @@ def do_evaluation(
                         pred,
                         data,
                         pred_oob=oob_pred,
+                        pred_official=official_pred,
                         gt=gt_values,
                         **(plot_kwargs or {}),
                     )
@@ -528,7 +533,7 @@ def save_eval_figures(figures, save_dir: Path, prefix: str):
             if isinstance(figs, dict):
                 for k, fig in figs.items():
                     fig.savefig(
-                        save_dir / f"{prefix}_{i}_comparison.png",
+                        save_dir / f"{prefix}_{i}_{k}.png",
                         bbox_inches="tight",
                         pad_inches=0,
                         dpi=dpi,
@@ -543,7 +548,7 @@ def save_eval_figures(figures, save_dir: Path, prefix: str):
     elif isinstance(figures, dict):
         for k, fig in figures.items():
             fig.savefig(
-                save_dir / f"{prefix}_comparison.png",
+                save_dir / f"{prefix}_{k}.png",
                 bbox_inches="tight",
                 pad_inches=0,
                 dpi=dpi,
@@ -691,6 +696,8 @@ def training(rank, conf, output_dir, args):
     plot_ids_overfit = None
     baseline_preds_cache = None
     baseline_preds_overfit_cache = None
+    official_baseline_preds_cache = None
+    official_baseline_preds_overfit_cache = None
     baseline_ready = False
     gt_pos_val_logged = False
     gt_pos_overfit_logged = False
@@ -707,6 +714,13 @@ def training(rank, conf, output_dir, args):
         plot_ids_static = np.random.choice(
             len(val_loader), min(len(val_loader), n), replace=False
         )
+        official_baseline_model = None
+        if rank == 0 and conf.model.matcher.name == "matchers.lightglue":
+            official_model_conf = copy.deepcopy(conf.model)
+            official_model_conf.matcher.weights = "sift"
+            official_baseline_model = get_model(official_model_conf.name)(
+                official_model_conf
+            ).to(device)
         if rank == 0:
             logger.info("Running initial val eval to cache OOB predictions for plotting.")
             baseline_preds_cache = {}
@@ -730,6 +744,21 @@ def training(rank, conf, output_dir, args):
                     plot_ids=plot_ids_static,
                     baseline_store=baseline_preds_cache,
                 )
+            if official_baseline_model is not None:
+                logger.info("Running initial val eval to cache official LG predictions for plotting.")
+                official_baseline_preds_cache = {}
+                with fork_rng(seed=conf.train.seed):
+                    do_evaluation(
+                        official_baseline_model,
+                        val_loader,
+                        device,
+                        official_baseline_model.loss,
+                        baseline_conf,
+                        rank,
+                        pbar=(rank == 0),
+                        plot_ids=plot_ids_static,
+                        baseline_store=official_baseline_preds_cache,
+                    )
             if rank == 0:
                 write_dict_summaries(writer, "val", baseline_results, 0)
                 write_dict_summaries(writer, "val", baseline_pr_metrics, 0)
@@ -825,6 +854,21 @@ def training(rank, conf, output_dir, args):
                         plot_ids=plot_ids_overfit,
                         baseline_store=baseline_preds_overfit_cache,
                     )
+                if official_baseline_model is not None:
+                    logger.info("Running initial overfit eval to cache official LG predictions for plotting.")
+                    official_baseline_preds_overfit_cache = {}
+                    with fork_rng(seed=conf.train.seed):
+                        do_evaluation(
+                            official_baseline_model,
+                            overfit_loader,
+                            device,
+                            official_baseline_model.loss,
+                            baseline_conf,
+                            rank,
+                            pbar=(rank == 0),
+                            plot_ids=plot_ids_overfit,
+                            baseline_store=official_baseline_preds_overfit_cache,
+                        )
                 if rank == 0:
                     write_dict_summaries(writer, "overfit", baseline_overfit_results, 0)
                     write_dict_summaries(
@@ -901,6 +945,8 @@ def training(rank, conf, output_dir, args):
                             names=names,
                         )
                     gt_pos_neg_ign_overfit_logged = True
+            if official_baseline_model is not None:
+                del official_baseline_model
         baseline_ready = True
     if args.compile:
         model = torch.compile(model, mode=args.compile)
@@ -1169,6 +1215,7 @@ def training(rank, conf, output_dir, args):
                         rank,
                         pbar=(rank == 0),
                         baseline_preds=baseline_preds_cache,
+                        official_baseline_preds=official_baseline_preds_cache,
                         plot_ids=plot_ids_static,
                         plot_kwargs=(
                             (
@@ -1244,6 +1291,7 @@ def training(rank, conf, output_dir, args):
                             rank,
                             pbar=(rank == 0),
                             baseline_preds=baseline_preds_overfit_cache,
+                            official_baseline_preds=official_baseline_preds_overfit_cache,
                             plot_ids=plot_ids_overfit,
                             plot_kwargs=(
                                 (
@@ -1304,6 +1352,7 @@ def training(rank, conf, output_dir, args):
                         rank,
                         pbar=(rank == 0),
                         baseline_preds=baseline_preds_cache,
+                        official_baseline_preds=official_baseline_preds_cache,
                         plot_ids=plot_ids_static,
                         plot_kwargs=(
                             (
