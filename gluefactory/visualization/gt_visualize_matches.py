@@ -619,6 +619,10 @@ def make_gt_roma_matches_certainty_figs(gt_, data_, n_pairs=2):
     return figs
 
 
+def make_gt_roma_matches_pred_certainty_figs(pred_, data_, n_pairs=2):
+    return make_gt_roma_matches_certainty_figs(pred_, data_, n_pairs=n_pairs)
+
+
 def _mutual_intersection_pairs(matches0, matches1, pad_mask0, pad_mask1):
     idx0 = torch.nonzero((matches0 > -1) & pad_mask0, as_tuple=False).squeeze(-1)
     if idx0.numel() == 0:
@@ -701,6 +705,12 @@ def make_gt_roma_matches_certainty_intersection_figs(gt_, data_, n_pairs=2):
             cbar.set_label("certainty", fontsize=7)
         figs.append(fig)
     return figs
+
+
+def make_gt_roma_matches_pred_certainty_intersection_figs(pred_, data_, n_pairs=2):
+    return make_gt_roma_matches_certainty_intersection_figs(
+        pred_, data_, n_pairs=n_pairs
+    )
 
 
 def make_gt_roma_keypoints_figs(pred_, data_, n_pairs=2):
@@ -805,6 +815,99 @@ def make_gt_roma_matches_cycle_error_figs(pred_, data_, n_pairs=2):
             )
             cycle_scores1 = grid_sample(
                 pred["cycle_error1"][i : i + 1, None], coords1[:, None]
+            )[0, 0, 0].detach().numpy()
+            norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            colors1 = [tuple(c) for c in cm.turbo(norm(cycle_scores1)).tolist()]
+            plot_matches(
+                data["keypoints0"][i][idx0_from_1].detach().numpy(),
+                data["keypoints1"][i][idx1].detach().numpy(),
+                color=colors1,
+                axes=axes[1],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+            sm = plt.cm.ScalarMappable(cmap="turbo", norm=norm)
+            sm.set_array([])
+            cax = fig.add_axes([0.89, 0.18, 0.018, 0.64])
+            cbar = fig.colorbar(sm, cax=cax)
+            cbar.ax.tick_params(labelsize=6)
+            cbar.set_label("cycle error (px)", fontsize=7)
+        figs.append(fig)
+    return figs
+
+
+def make_gt_roma_matches_gt_cycle_error_figs(gt_, roma_pred_, data_, n_pairs=2):
+    gt = batch_to_device(gt_, "cpu", non_blocking=False)
+    roma_pred = batch_to_device(roma_pred_, "cpu", non_blocking=False)
+    data = batch_to_device(data_, "cpu", non_blocking=False)
+    if "cycle_error0" not in roma_pred:
+        return []
+    n_pairs = min(n_pairs, data["view0"]["image"].shape[0])
+    pad_mask0 = data.get("keypoint_scores0")
+    pad_mask1 = data.get("keypoint_scores1")
+    if pad_mask0 is not None:
+        pad_mask0 = pad_mask0 > 0
+    else:
+        pad_mask0 = torch.ones_like(gt["matches0"], dtype=torch.bool)
+    if pad_mask1 is not None:
+        pad_mask1 = pad_mask1 > 0
+    else:
+        pad_mask1 = torch.ones_like(gt["matches1"], dtype=torch.bool)
+
+    vmax = 5.0
+    figs = []
+    for i in range(n_pairs):
+        title0 = _get_view_title(data, "view0", i, "image0")
+        title1 = _get_view_title(data, "view1", i, "image1")
+        fig, axes = plot_image_grid(
+            [[
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ], [
+                _to_hwc_image(data["view0"]["image"][i]),
+                _to_hwc_image(data["view1"]["image"][i]),
+            ]],
+            titles=[[title0, title1], [None, None]],
+            return_fig=True,
+            set_lim=True,
+            dpi=300,
+            pad=0.05,
+        )
+        fig.set_size_inches(
+            fig.get_size_inches()[0] * 1.18, fig.get_size_inches()[1] * 1.18
+        )
+        fig.subplots_adjust(right=0.86, hspace=0.0, top=0.97, bottom=0.03)
+        match_mask0 = (gt["matches0"][i] > -1) & pad_mask0[i]
+        idx0 = torch.nonzero(match_mask0, as_tuple=False).squeeze(-1)
+        if idx0.numel():
+            idx1 = gt["matches0"][i][idx0].long()
+            coords0 = normalize_coords(
+                data["keypoints0"][i][idx0][None], data["view0"]["image"][i].shape[-2:]
+            )
+            cycle_scores0 = grid_sample(
+                roma_pred["cycle_error0"][i : i + 1, None], coords0[:, None]
+            )[0, 0, 0].detach().numpy()
+            norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
+            colors0 = [tuple(c) for c in cm.turbo(norm(cycle_scores0)).tolist()]
+            plot_matches(
+                data["keypoints0"][i][idx0].detach().numpy(),
+                data["keypoints1"][i][idx1].detach().numpy(),
+                color=colors0,
+                axes=axes[0],
+                a=0.7,
+                lw=0.8,
+                ps=0.5,
+            )
+        match_mask1 = (gt["matches1"][i] > -1) & pad_mask1[i]
+        idx1 = torch.nonzero(match_mask1, as_tuple=False).squeeze(-1)
+        if idx1.numel():
+            idx0_from_1 = gt["matches1"][i][idx1].long()
+            coords1 = normalize_coords(
+                data["keypoints1"][i][idx1][None], data["view1"]["image"][i].shape[-2:]
+            )
+            cycle_scores1 = grid_sample(
+                roma_pred["cycle_error1"][i : i + 1, None], coords1[:, None]
             )[0, 0, 0].detach().numpy()
             norm = mcolors.Normalize(vmin=0.0, vmax=vmax)
             colors1 = [tuple(c) for c in cm.turbo(norm(cycle_scores1)).tolist()]
