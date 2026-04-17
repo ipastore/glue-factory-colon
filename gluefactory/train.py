@@ -17,7 +17,7 @@ from pydoc import locate
 import numpy as np
 import matplotlib.image as mpimg
 import torch
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
@@ -717,7 +717,8 @@ def training(rank, conf, output_dir, args):
         official_baseline_model = None
         if rank == 0 and conf.model.matcher.name == "matchers.lightglue":
             official_model_conf = copy.deepcopy(conf.model)
-            official_model_conf.matcher.weights = "sift"
+            with open_dict(official_model_conf.matcher):
+                official_model_conf.matcher.weights = "sift"
             official_baseline_model = get_model(official_model_conf.name)(
                 official_model_conf
             ).to(device)
