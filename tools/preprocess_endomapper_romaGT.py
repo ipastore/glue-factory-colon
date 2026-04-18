@@ -7,11 +7,13 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+import cv2
 import numpy as np
 
 from gluefactory.datasets.endomapper_utils import (
     MISSING_DEPTH_VALUE,
     build_feature_depth_arrays,
+    compute_specular_mask,
     compute_overlap_matrix,
     extract_cameras_npz,
     extract_intrinsics,
@@ -26,6 +28,7 @@ from gluefactory.datasets.endomapper_utils import (
 from gluefactory.settings import DATA_PATH
 
 DEFAULT_ROOT = DATA_PATH / "slam-results_long_sequences_ENE26"
+DEFAULT_EXCLUDE_MASK_PATH = Path("./assets/mask_endomapper.png")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -79,6 +82,15 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Overwrite existing NPZ outputs.",
+    )
+    parser.add_argument(
+        "--exclude-mask-path",
+        type=Path,
+        default=DEFAULT_EXCLUDE_MASK_PATH,
+        help=(
+            "Optional path to a binary mask image to combine with the specular mask "
+            "before saving. White pixels are excluded, black pixels are kept."
+        ),
     )
     return parser.parse_args()
 
@@ -212,10 +224,25 @@ def _collect_point3d_arrays(points3d: Dict[int, object]) -> Tuple[np.ndarray, np
     return ids, coords
 
 
+def _load_exclude_mask(mask_path: Path | None) -> np.ndarray | None:
+    if mask_path is None:
+        return None
+    exclude_mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+    if exclude_mask is None:
+        raise FileNotFoundError(f"Failed reading exclude mask {mask_path}")
+    exclude_mask = cv2.resize(
+        exclude_mask,
+        (exclude_mask.shape[1] // 2, exclude_mask.shape[0] // 2),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    return exclude_mask >= 128
+
+
 def process_sequence(
     seq_dir: Path,
     map_id: str,
     out_dir: Path,
+    exclude_mask: np.ndarray | None = None,
 ) -> Path:
     cameras, images = _load_sequence_colmap(seq_dir, map_id)
     #, points3d
@@ -292,6 +319,45 @@ def process_sequence(
     overlap_matrix = compute_overlap_matrix(point3d_ids_list)
     # point3d_ids_all, point3d_coords_all = _collect_point3d_arrays(points3d)
 
+    keyframes_dir = seq_dir / "output" / "3D_maps" / str(map_id) / "keyframes"
+    specular_mask_paths: List[str] = []
+    for image_name in image_names:
+        image_name_str = str(image_name)
+        keyframe_path = keyframes_dir / f"Keyframe_{image_name_str}.png"
+        specular_rel_path = (
+            Path(seq_dir.name)
+            / "output"
+            / "3D_maps"
+            / str(map_id)
+            / "specular_masks"
+            / f"Spec_{image_name_str}.npz"
+        )
+        specular_mask_paths.append(str(specular_rel_path))
+        if not keyframe_path.exists():
+            raise FileNotFoundError(
+                f"Cannot compute specular mask: missing keyframe image {keyframe_path}"
+            )
+        specular_path = seq_dir.parent / specular_rel_path
+        if not specular_path.exists():
+            specular_path.parent.mkdir(parents=True, exist_ok=True)
+            image_gray = cv2.imread(str(keyframe_path), cv2.IMREAD_GRAYSCALE)
+            if image_gray is None:
+                raise FileNotFoundError(f"Failed reading keyframe {keyframe_path}")
+            spec_mask_bool = compute_specular_mask(image_gray)
+            if exclude_mask is not None:
+                if exclude_mask.shape != spec_mask_bool.shape:
+                    raise ValueError(
+                        "Exclude mask shape mismatch for "
+                        f"{keyframe_path}: {exclude_mask.shape} vs {spec_mask_bool.shape}"
+                    )
+                spec_mask_bool &= ~exclude_mask
+            spec_mask_packed = np.packbits(spec_mask_bool.reshape(-1))
+            np.savez_compressed(
+                specular_path,
+                mask_packbits=spec_mask_packed,
+                mask_shape=np.array(spec_mask_bool.shape, dtype=np.int32),
+            )
+
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{seq_dir.name}_map{map_id}.npz"
     np.savez(
@@ -306,6 +372,7 @@ def process_sequence(
         map_id=map_id,
         seq=seq_dir.name,
         overlap_matrix=overlap_matrix,
+        specular_mask_paths=np.array(specular_mask_paths, dtype=object),
         # keypoints_per_image=np.array(keypoints_list, dtype=object),
         # descriptors_per_image=np.array(descriptors_list, dtype=object),
         # depths_per_image=np.array(depths_list, dtype=object),
@@ -328,6 +395,7 @@ def main():
     out_dir = args.output_dir or (root / "processed_npz")
     video_root = args.video_root
     frames_root = args.frames_root
+    exclude_mask = _load_exclude_mask(args.exclude_mask_path)
 
     seq_map_ids = None
     if args.seq_maps:
@@ -396,7 +464,7 @@ def main():
                 print(f"[skip] {seq_dir.name} map {map_id} -> {out_path} (exists)")
                 continue
             try:
-                out = process_sequence(seq_dir, map_id, out_dir)
+                out = process_sequence(seq_dir, map_id, out_dir, exclude_mask=exclude_mask)
                 print(f"[ok] {seq_dir.name} map {map_id} -> {out}")
             except Exception as exc:
                 print(f"[fail] {seq_dir.name} map {map_id}: {exc}")

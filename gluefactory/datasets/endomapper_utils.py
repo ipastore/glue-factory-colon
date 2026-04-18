@@ -333,9 +333,9 @@ def compute_overlap_matrix(
     return overlap
 
 
-
+# ENDOCARTOSCOPE-CUDASIFT STYLE but just for the octave 0
 def compute_specular_mask(
-    image: np.ndarray, threshold=0.70, kernel_size=3, iterations=5
+    image: np.ndarray, threshold=240/255.0, kernel_size=13, iterations=1
 ) -> np.ndarray:
     """Compute a specular mask from an image.
 

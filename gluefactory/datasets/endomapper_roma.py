@@ -20,6 +20,7 @@ from ..utils.image import load_image
 from ..utils.tools import fork_rng
 from ..visualization.viz2d import plot_image_grid
 from .base_dataset import BaseDataset
+from .posed_images import load_specular_mask
 from .utils import rotate_intrinsics, rotate_pose_inplane, scale_intrinsics
 from ..models.utils.misc import pad_to_length
 
@@ -68,6 +69,7 @@ class EndomapperRoma(BaseDataset):
         "reseed": False,
         "seed": 0,
         "read_image": True,
+        "read_specular_mask": False,
         "grayscale": False,
         "min_images_per_map": 10,
         # "min_3D_points_per_map": 50
@@ -151,6 +153,7 @@ class _PairDataset(torch.utils.data.Dataset):
         self.camera_indices: Dict[str, np.ndarray] = {}
         self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
         self.colmap_xys_per_image: Dict[str, np.ndarray] = {}
+        self.specular_masks: Dict[str, np.ndarray] = {}
         self.max_num_colmap_observations = 0
 
 
@@ -187,6 +190,8 @@ class _PairDataset(torch.utils.data.Dataset):
                     self.colmap_xys_per_image[seq_map] = data_npz[
                         "colmap_xys_per_image"
                     ]
+                    if "specular_mask_paths" in data_npz:
+                        self.specular_masks[seq_map] = data_npz["specular_mask_paths"]
                     seq_max_colmap = max(
                         (len(ids) for ids in self.point3D_ids_per_image[seq_map]),
                         default=0,
@@ -249,16 +254,20 @@ class _PairDataset(torch.utils.data.Dataset):
         #         count=n,
         #     )
         #     valid &= depth_exists
-        # if self.conf.read_specular_mask:
-        #     specular_exists = np.fromiter(
-        #         (
-        #             (self.root / str(path)).exists()
-        #             for path in self.specular_masks[seq_map]
-        #         ),
-        #         dtype=bool,
-        #         count=n,
-        #     )
-        #     valid &= specular_exists
+        if self.conf.read_specular_mask:
+            if seq_map not in self.specular_masks:
+                valid[:] = False
+            else:
+                n = len_images
+                specular_exists = np.fromiter(
+                    (
+                        (self.root / str(path)).exists()
+                        for path in self.specular_masks[seq_map]
+                    ),
+                    dtype=bool,
+                    count=n,
+                )
+                valid &= specular_exists
         return valid
     
 
@@ -421,7 +430,17 @@ class _PairDataset(torch.utils.data.Dataset):
             image = torch.zeros(
                 [3 - 2 * int(self.conf.grayscale), size[0], size[1]]
             ).float()
-        
+
+        specular_mask = None
+        if self.conf.read_specular_mask:
+            specular_path = self.root / str(self.specular_masks[seq_map][idx])
+            specular_mask = load_specular_mask(specular_path)[None]
+            if tuple(specular_mask.shape[-2:]) != tuple(image.shape[-2:]):
+                raise ValueError(
+                    f"Specular mask shape mismatch for {specular_path}: "
+                    f"{tuple(specular_mask.shape[-2:])} vs image {tuple(image.shape[-2:])}."
+                )
+
         # add random rotations
         do_rotate = self.conf.p_rotate > 0.0 and self.split == "train"
         if do_rotate:
@@ -429,8 +448,12 @@ class _PairDataset(torch.utils.data.Dataset):
             k = 0
             if np.random.rand() < p:
                 k = np.random.choice(2, 1, replace=False)[0] * 2 - 1
-                img = torch.rot90(img, k=-k, dims=[1, 2])
-                K = rotate_intrinsics(K, img.shape, k + 2)
+                image = torch.rot90(image, k=-k, dims=[1, 2])
+                if specular_mask is not None:
+                    specular_mask = torch.rot90(
+                        specular_mask.float(), k=-k, dims=[1, 2]
+                    ) > 0.5
+                K = rotate_intrinsics(K, image.shape, k + 2)
                 T = rotate_pose_inplane(T, k + 2)
 
 
@@ -443,6 +466,8 @@ class _PairDataset(torch.utils.data.Dataset):
         }
         if image is not None:
             data["image"] = image
+        if specular_mask is not None:
+            data["specular_mask"] = specular_mask
         if self.max_num_colmap_observations > 0:
             data["colmap_xys"] = pad_to_length(
                 colmap_xys, self.max_num_colmap_observations, -2, mode="zeros"

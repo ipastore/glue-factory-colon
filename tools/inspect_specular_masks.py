@@ -32,12 +32,27 @@ def out_path_for(npz_path: Path, input_root: Path, output_root: Path) -> Path:
     return (output_root / rel).with_suffix(".png")
 
 
-def infer_image_path(npz_path: Path, input_root: Path, image_root: Path) -> Path | None:
+def infer_image_path(npz_path: Path, input_root: Path, image_root: Path | None) -> Path | None:
     if input_root.is_file():
-        return None
-    try:
-        rel = npz_path.relative_to(input_root)
-    except Exception:
+        rel = npz_path.name
+    else:
+        try:
+            rel = npz_path.relative_to(input_root)
+        except Exception:
+            return None
+    # Roma layout:
+    # <seq>/output/3D_maps/<map_id>/specular_masks/Spec_<id>.npz
+    # -> <seq>/output/3D_maps/<map_id>/keyframes/Keyframe_<id>.(png|jpg|jpeg)
+    if npz_path.parent.name == "specular_masks":
+        stem = npz_path.stem
+        if stem.startswith("Spec_"):
+            keyframe_id = stem[len("Spec_") :]
+            cand_dir = npz_path.parent.parent / "keyframes"
+            for ext in (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"):
+                p = cand_dir / f"Keyframe_{keyframe_id}{ext}"
+                if p.exists():
+                    return p
+    if image_root is None:
         return None
     # specular_undistorted/Seq_xxx/map_id/<stem>_spec.npz
     # -> Undistorted_SfM/Seq_xxx/map_id/images/<stem>.(png|jpg|jpeg)
@@ -61,6 +76,7 @@ def main() -> int:
     parser.add_argument("--image-root", type=Path, default=None, help="Optional image root (e.g. .../Undistorted_SfM) to save overlays.")
     parser.add_argument("--limit", type=int, default=None, help="Optional max number of files to export.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing PNGs.")
+    parser.add_argument("--overlay-alpha", type=float, default=0.65, help="Blend weight for excluded regions in overlay previews.")
     args = parser.parse_args()
 
     input_path = args.input
@@ -95,18 +111,29 @@ def main() -> int:
             if not ok:
                 raise OSError(f"cv2.imwrite failed for {out_path}")
 
-            if args.image_root is not None:
-                img_path = infer_image_path(npz_path, input_path, args.image_root)
-                if img_path is not None:
-                    img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
-                    if img is not None and img.shape[:2] == mask_keep.shape:
-                        overlay = img.copy()
-                        overlay[~mask_keep] = (255, 255, 0)  # cyan in BGR
-                        overlay = cv2.addWeighted(img, 0.7, overlay, 0.3, 0.0)
-                        overlay_path = out_path.with_name(out_path.stem + "_overlay.png")
-                        ok_ov = cv2.imwrite(str(overlay_path), overlay)
-                        if not ok_ov:
-                            raise OSError(f"cv2.imwrite failed for {overlay_path}")
+            img_path = infer_image_path(npz_path, input_path, args.image_root)
+            if img_path is not None:
+                img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
+                if img is not None and img.shape[:2] == mask_keep.shape:
+                    overlay = img.copy()
+                    excluded = ~mask_keep
+                    overlay[excluded] = (0, 0, 255)  # red in BGR
+                    overlay = cv2.addWeighted(
+                        img,
+                        1.0 - args.overlay_alpha,
+                        overlay,
+                        args.overlay_alpha,
+                        0.0,
+                    )
+                    overlay[excluded] = np.clip(
+                        overlay[excluded].astype(np.int16) + np.array([0, 0, 40], dtype=np.int16),
+                        0,
+                        255,
+                    ).astype(np.uint8)
+                    overlay_path = out_path.with_name(out_path.stem + "_overlay.png")
+                    ok_ov = cv2.imwrite(str(overlay_path), overlay)
+                    if not ok_ov:
+                        raise OSError(f"cv2.imwrite failed for {overlay_path}")
             exported += 1
         except Exception as exc:
             failed += 1
