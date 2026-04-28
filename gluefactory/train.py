@@ -1366,7 +1366,6 @@ def training(rank, conf, output_dir, args):
                             )
                         ),
                     )
-                    best_eval = results[conf.train.best_key]
                 best_eval = save_experiment(
                     model,
                     optimizer,
