@@ -27,6 +27,27 @@ def _clean_name(name: str) -> str:
     return s
 
 
+def _get_valid_keypoint_mask_for_view(
+    view_idx: int, ref: torch.Tensor, *containers: Dict
+) -> torch.Tensor:
+    score_key = f"keypoint_scores{view_idx}"
+    valid_key = f"valid_3D_mask{view_idx}"
+    for container in containers:
+        if not container:
+            continue
+        scores = container.get(score_key)
+        if scores is not None:
+            scores = scores.to(ref.device)
+            if scores.dtype == torch.bool:
+                return scores
+            # Support both zero-padded and -1-masked conventions.
+            return scores > (-1 if torch.any(scores < 0) else 0)
+        valid = container.get(valid_key)
+        if valid is not None:
+            return valid.to(device=ref.device, dtype=torch.bool)
+    return torch.ones_like(ref, dtype=torch.bool)
+
+
 def make_compare_lg_oob_figures(
     pred_epoch: Dict,
     data_: Dict,
@@ -59,14 +80,17 @@ def make_compare_lg_oob_figures(
     overlap = data.get("overlap_0to1")
     map_pos0_mask = gt.get("mask_pos_3d_map0") if gt else None
     reproj_pos0_mask = gt.get("mask_pos_reproj0") if gt else None
-    pad_mask0 = data.get("keypoint_scores0")
-    if pad_mask0 is not None:
-        pad_mask0 = pad_mask0 > 0
+    pad_mask0 = _get_valid_keypoint_mask_for_view(0, gt_matches0, data, pred_epoch)
+    pad_mask1 = _get_valid_keypoint_mask_for_view(
+        1,
+        pred_epoch.get("matches1", pred_epoch["keypoints1"][..., 0]),
+        data,
+        pred_epoch,
+    )
 
     view0, view1 = data["view0"], data["view1"]
     n_pairs = min(n_pairs, view0["image"].shape[0])
     kp0_epoch, kp1_epoch = pred_epoch["keypoints0"], pred_epoch["keypoints1"]
-    kp0_oob, kp1_oob = pred_oob["keypoints0"], pred_oob["keypoints1"]
 
     figs = []
     metrics_epoch = matcher_metrics(pred_epoch, {"gt_matches0": gt_matches0})
@@ -107,6 +131,9 @@ def make_compare_lg_oob_figures(
                     valid = (matches > -1) & (gt_matches0[i] >= -2)
                 else:
                     valid = (matches > -1) & (gt_matches0[i] >= -1)
+                valid = valid & pad_mask0[i]
+                target_valid = pad_mask1[i].gather(0, matches.clamp(min=0).long())
+                valid = valid & target_valid
                 kpm0 = kp0[valid]
                 kpm1 = kp1[matches[valid]]
                 correct = gt_matches0[i][valid] == matches[valid]
@@ -122,7 +149,11 @@ def make_compare_lg_oob_figures(
                             else [ignored_idx.item()]
                         ):
                             colors[idx] = ignored_rgba
-                plot_keypoints([kp0, kp1], axes=axes[row], colors="royalblue")
+                plot_keypoints(
+                    [kp0[pad_mask0[i]], kp1[pad_mask1[i]]],
+                    axes=axes[row],
+                    colors="royalblue",
+                )
                 plot_matches(
                     kpm0,
                     kpm1,

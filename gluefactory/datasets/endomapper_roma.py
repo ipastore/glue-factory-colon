@@ -137,18 +137,7 @@ class _PairDataset(torch.utils.data.Dataset):
         self.poses: Dict[str, np.ndarray] = {}
         self.intrinsics: Dict[str, np.ndarray] = {}
         self.valid: Dict[str, np.ndarray] = {}
-        # self.point3D_ids_all: Dict[str, np.ndarray] = {}
-        # self.point3D_coords_all: Dict[str, np.ndarray] = {}
         self.overlap_matrix: Dict[str, np.ndarray] = {}
-        # self.keypoints: Dict[str, np.ndarray] = {}
-        # self.descriptors: Dict[str, np.ndarray] = {}
-        # self.depths: Dict[str, np.ndarray] = {}
-        # self.scales: Dict[str, np.ndarray] = {}
-        # self.orientations: Dict[str, np.ndarray] = {}
-        # self.scores: Dict[str, np.ndarray] = {}
-        # self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
-        # self.valid_depth_mask: Dict[str, np.ndarray] = {}
-        # self.valid_3d_mask: Dict[str, np.ndarray] = {}
         self.cameras = {}
         self.camera_indices: Dict[str, np.ndarray] = {}
         self.point3D_ids_per_image: Dict[str, np.ndarray] = {}
@@ -163,11 +152,7 @@ class _PairDataset(torch.utils.data.Dataset):
             try:
                 with np.load(str(path), allow_pickle=True) as data_npz:
                     len_images = data_npz["image_names"].shape[0]
-                    # len_3D_points = data_npz["point3D_ids"].shape[0]
-                    if (
-                        len_images < self.conf.min_images_per_map
-                        # or len_3D_points < self.conf.min_3D_points_per_map
-                    ):
+                    if (len_images < self.conf.min_images_per_map):
                         continue
 
                     self.image_names[seq_map] = data_npz["image_names"]
@@ -177,8 +162,6 @@ class _PairDataset(torch.utils.data.Dataset):
                     self.intrinsics[seq_map] = data_npz["intrinsics"]
                     self.map_id[seq_map] = str(np.asarray(data_npz["map_id"]).item())
                     self.seq[seq_map] = str(np.asarray(data_npz["seq"]).item())
-                    # self.point3D_ids_all[seq_map] = data_npz["point3D_ids"]
-                    # self.point3D_coords_all[seq_map] = data_npz["point3D_coords"]
                     self.overlap_matrix[seq_map] = data_npz["overlap_matrix"].astype(
                         np.float32, copy=False
                     )
@@ -247,13 +230,6 @@ class _PairDataset(torch.utils.data.Dataset):
                     continue
                 image_valid.append(True)
             valid &= np.asarray(image_valid, dtype=bool)
-        # if self.conf.read_depth:
-        #     depth_exists = np.fromiter(
-        #         ((self.root / str(path)).exists() for path in self.depths[seq_map]),
-        #         dtype=bool,
-        #         count=n,
-        #     )
-        #     valid &= depth_exists
         if self.conf.read_specular_mask:
             if seq_map not in self.specular_masks:
                 valid[:] = False
@@ -281,7 +257,6 @@ class _PairDataset(torch.utils.data.Dataset):
         else:
             num_pos = num_per_seq
             num_neg = None
-        # Not tested this if statement
         if split != "train" and self.conf[split + "_pairs"] is not None:
             # Fixed validation or test pairs
             assert num_pos is None
@@ -530,14 +505,12 @@ class _PairDataset(torch.utils.data.Dataset):
             data["names"] = f"{seq_map}/{data0['name']}_{data1['name']}"
         else:
             assert self.conf.views == 1
-            # seq_map, idx0 = self.items[idx]
             if isinstance(idx, list):
                 seq_map, img_name = idx
             else:
                 seq_map, img_name = self.items[idx]
 
             data = self._read_view(seq_map, img_name)
-            # data = self._read_view(seq_map, idx0)
         data["idx"] = idx
         return data
 

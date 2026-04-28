@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import zipfile
-from tqdm import tqdm
+# from tqdm import tqdm
 
 try:
     import cv2
@@ -23,18 +23,31 @@ EXPECTED_KEYS = {
     "map_id",
     "seq",
     "overlap_matrix",
-    "keypoints_per_image",
-    "descriptors_per_image",
-    "depths_per_image",
-    "scales_per_image",
-    "orientations_per_image",
-    "scores_per_image",
-    "point3D_ids_per_image",
-    "valid_depth_mask_per_image",
-    "valid_3d_mask_per_image",
-    "point3D_ids",
-    "point3D_coords",
 }
+
+# EXPECTED_KEYS = {
+#     "image_names",
+#     "image_sizes",
+#     "camera_ids",
+#     "cameras",
+#     "camera_indices",
+#     "poses",
+#     "intrinsics",
+#     "map_id",
+#     "seq",
+#     "overlap_matrix",
+#     "keypoints_per_image",
+#     "descriptors_per_image",
+#     "depths_per_image",
+#     "scales_per_image",
+#     "orientations_per_image",
+#     "scores_per_image",
+#     "point3D_ids_per_image",
+#     "valid_depth_mask_per_image",
+#     "valid_3d_mask_per_image",
+#     "point3D_ids",
+#     "point3D_coords",
+# }
 
 def check_image(path: Path, black_threshold: int = 0):
     """Check if an image can be opened and is not fully black."""
@@ -214,7 +227,7 @@ def main():
     args = parser.parse_args()
 
     # Root directory containing sequences
-    data_root = Path("/media/student/HDD/nacho/glue-factory/data/slam-results-nacho")
+    data_root = Path("/home/ecs/glue-factory-colon/data/slam-results_long_sequences_ENE26")
     npz_subdir = "processed_npz"
     
     npz_dir = data_root / npz_subdir
@@ -257,7 +270,7 @@ def main():
     corrupted_npz = []
     all_missing_images = []
     
-    for npz_path in tqdm(npz_files, desc="Checking NPZ files"):
+    for npz_path in npz_files:
         result, error, missing_images = check_npz(
             npz_path,
             data_root,

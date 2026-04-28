@@ -19,3 +19,7 @@ ThirdParty/
 gluefactory/datasets/endomapper_seq_lists/*
 gluefactory/settings.py
 *.log
+roma_viz/*
+assets/*
+!assets/mask_endomapper.png
+roma_v2_viz/*
