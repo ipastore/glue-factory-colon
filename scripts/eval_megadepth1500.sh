@@ -14,14 +14,14 @@ run_eval() {
 
 EXTRA_ARGS=("$@")
 
-sp_official_common=(
+SP_2k_common=(
     model.extractor.name=gluefactory_nonfree.superpoint
     model.extractor.max_num_keypoints=2048
     model.extractor.detection_threshold=0
     model.extractor.nms_radius=0
 )
 
-sift_pycolmap_common=(
+SiftGPU_4k_common=(
     model.extractor.name=extractors.sift
     model.extractor.backend=pycolmap_cuda
     model.extractor.max_num_keypoints=4096
@@ -40,11 +40,11 @@ sift_pycolmap_common=(
     model.extractor.random_topk=false
 )
 
-sift_cudasift_common=(
+CudaSift_4k_common=(
     model.extractor.name=extractors.sift
     model.extractor.backend=py_cudasift
     model.extractor.max_num_keypoints=4096
-    model.extractor.detection_threshold=0.00000000001
+    model.extractor.detection_threshold=0.01
     model.extractor.rootsift=true
     model.extractor.nms_radius=0
     model.extractor.first_octave=-1
@@ -59,277 +59,331 @@ sift_cudasift_common=(
     model.extractor.random_topk=false
 )
 
-aliked_common=(
+SiftGPU_2k_common=(
+    model.extractor.name=extractors.sift
+    model.extractor.backend=pycolmap_cuda
+    model.extractor.max_num_keypoints=2048
+    model.extractor.detection_threshold=0.0066667
+    model.extractor.rootsift=true
+    model.extractor.nms_radius=0
+    model.extractor.first_octave=-1
+    model.extractor.num_octaves=4
+    model.extractor.init_blur=1.0
+    model.extractor.force_num_keypoints=false
+    model.extractor.trainable=false
+    model.extractor.filter_kpts_with_wrapper=false
+    model.extractor.filter_with_scale_weighting=true
+    model.extractor.extractor_channel=grayscale
+    model.extractor.filter_with_lowest_scale=false
+    model.extractor.random_topk=false
+)
+
+CudaSift_2k_common=(
+    model.extractor.name=extractors.sift
+    model.extractor.backend=py_cudasift
+    model.extractor.max_num_keypoints=2048
+    model.extractor.detection_threshold=0.01
+    model.extractor.rootsift=true
+    model.extractor.nms_radius=0
+    model.extractor.first_octave=-1
+    model.extractor.num_octaves=4
+    model.extractor.init_blur=1.0
+    model.extractor.force_num_keypoints=false
+    model.extractor.trainable=false
+    model.extractor.filter_kpts_with_wrapper=false
+    model.extractor.filter_with_scale_weighting=true
+    model.extractor.extractor_channel=grayscale
+    model.extractor.filter_with_lowest_scale=false
+    model.extractor.random_topk=false
+)
+
+SP_4k_common=(
+    model.extractor.name=gluefactory_nonfree.superpoint
+    model.extractor.max_num_keypoints=4096
+    model.extractor.detection_threshold=0
+    model.extractor.nms_radius=0
+)
+
+ALIKED_2k_common=(
     model.extractor.name=extractors.aliked
     model.extractor.max_num_keypoints=2048
     model.extractor.detection_threshold=0.0
 )
 
-disk_common=(
+ALIKED_4k_common=(
+    model.extractor.name=extractors.aliked
+    model.extractor.max_num_keypoints=4096
+    model.extractor.detection_threshold=0.0
+)
+
+DISK_2k_common=(
     model.extractor.name=extractors.disk_kornia
     model.extractor.max_num_keypoints=2048
     model.extractor.detection_threshold=0.0
 )
 
-lg_common=(
+DISK_4k_common=(
+    model.extractor.name=extractors.disk_kornia
+    model.extractor.max_num_keypoints=4096
+    model.extractor.detection_threshold=0.0
+)
+
+LG_common=(
     model.matcher.depth_confidence=-1
     model.matcher.width_confidence=-1
     model.matcher.filter_threshold=0.1
 )
 
-lg_official_common=(
+LG_official_common=(
     model.matcher.name=matchers.lightglue_pretrained
 )
 
-roma_common=(
+RoMa_common=(
     model.matcher.name=roma
     model.matcher.sample_num_matches=0
     model.matcher.max_kp_error=3
     model.matcher.filter_threshold=0.05
 )
 
-#region Superpoint Official
-run_eval "superpoint_official+nn" \
-    "${sp_official_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.mutual_check=True
-
-run_eval "superpoint_official+nn_th" \
-    "${sp_official_common[@]}" \
+#region SuperPoint Official
+run_eval "SuperPoint_2k+NN" \
+    "${SP_2k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
-    model.matcher.distance_thresh=0.7
-
-run_eval "superpoint_official+nn_th_ratio" \
-    "${sp_official_common[@]}" \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
+run_eval "SuperPoint_4k+NN" \
+    "${SP_4k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
     model.matcher.distance_thresh=0.7 \
     model.matcher.ratio_thresh=0.7
 
-run_eval "superpoint_official+lightglue_official" \
-    "${sp_official_common[@]}" \
-    "${lg_official_common[@]}" \
+run_eval "SuperPoint_2k+LG-SP" \
+    "${SP_2k_common[@]}" \
+    "${LG_official_common[@]}" \
     model.matcher.features=superpoint \
-    "${lg_common[@]}"
-
-run_eval "superpoint_official+roma" \
-    "${sp_official_common[@]}" \
-    "${roma_common[@]}" \
-    model.matcher.weights=indoor
-
-run_eval "superpoint_official+lg_ENDO_HOMO" \
-    "${sp_official_common[@]}" \
-    model.matcher.name=matchers.lightglue \
+    "${LG_common[@]}"
+run_eval "SuperPoint_4k+LG-SP" \
+    "${SP_4k_common[@]}" \
+    "${LG_official_common[@]}" \
     model.matcher.features=superpoint \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/09-sp_official+lg_ENDO_HOMO/checkpoint_best.tar
+    "${LG_common[@]}"
+
+run_eval "SuperPoint_2k+RoMa" \
+    "${SP_2k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
+run_eval "SuperPoint_4k+RoMa" \
+    "${SP_4k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
 #endregion
 
-#region SIFT_colmap
-run_eval "sift_pycolmap+nn" \
-    "${sift_pycolmap_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.mutual_check=True
-
-run_eval "sift_pycolmap+nn_th" \
-    "${sift_pycolmap_common[@]}" \
+#region SiftGPU
+run_eval "SiftGPU_2k+NN" \
+    "${SiftGPU_2k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
-    model.matcher.distance_thresh=0.7
-
-run_eval "sift_pycolmap+nn_th_ratio" \
-    "${sift_pycolmap_common[@]}" \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
+run_eval "SiftGPU_4k+NN" \
+    "${SiftGPU_4k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
     model.matcher.distance_thresh=0.7 \
     model.matcher.ratio_thresh=0.7
 
-run_eval "00-sift_colmap+lg_official" \
-    "${sift_pycolmap_common[@]}" \
-    "${lg_official_common[@]}" \
+run_eval "SiftGPU_2k+LG-SiftGPU_official" \
+    "${SiftGPU_2k_common[@]}" \
+    "${LG_official_common[@]}" \
     model.matcher.features=sift \
-    "${lg_common[@]}"
+    "${LG_common[@]}"
+run_eval "SiftGPU_4k+LG-SiftGPU_official" \
+    "${SiftGPU_4k_common[@]}" \
+    "${LG_official_common[@]}" \
+    model.matcher.features=sift \
+    "${LG_common[@]}"
 
-run_eval "01-sift_colmap+lg_OP_HOMO" \
-    "${sift_pycolmap_common[@]}" \
+
+run_eval "SiftGPU_2k+LG-CudaSift_ours" \
+    "${SiftGPU_2k_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/01-py_colmap+lg_OP_HOMO/checkpoint_best.tar
-
-run_eval "02-sift_colmap+lg_MD_3D" \
-    "${sift_pycolmap_common[@]}" \
+    "${LG_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
+run_eval "SiftGPU_4k+LG-CudaSift_ours" \
+    "${SiftGPU_4k_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
-
-run_eval "sift_colmap+04_lg_MD_3D_cudasift" \
-    "${sift_pycolmap_common[@]}" \
-    model.matcher.name=matchers.lightglue \
-    model.matcher.features=sift \
-    "${lg_common[@]}" \
+    "${LG_common[@]}" \
     checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
 
-run_eval "sift_pycolmap+roma" \
-    "${sift_pycolmap_common[@]}" \
-    "${roma_common[@]}" \
-    model.matcher.weights=indoor
+
+run_eval "SiftGPU_2k+LG-colon_ours" \
+    "${SiftGPU_2k_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${LG_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/11-cudasift+lg_ENDO_ROMA_ft_04_pos_neg_ign_specular_mask/checkpoint_best.tar
+run_eval "SiftGPU_4k+LG-colon_ours" \
+    "${SiftGPU_4k_common[@]}" \
+    model.matcher.name=matchers.lightglue \
+    model.matcher.features=sift \
+    "${LG_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/11-cudasift+lg_ENDO_ROMA_ft_04_pos_neg_ign_specular_mask/checkpoint_best.tar
+
+run_eval "SiftGPU_2k+RoMa" \
+    "${SiftGPU_2k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
+run_eval "SiftGPU_4k+RoMa" \
+    "${SiftGPU_4k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
 #endregion
 
-#region SIFT_cudasift
-run_eval "sift_cudasift+nn" \
-    "${sift_cudasift_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.mutual_check=True
-
-run_eval "sift_cudasift+nn_th" \
-    "${sift_cudasift_common[@]}" \
+#region CudaSift
+run_eval "CudaSift_2k+NN" \
+    "${CudaSift_2k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
-    model.matcher.distance_thresh=0.7
-
-run_eval "sift_cudasift+nn_th_ratio" \
-    "${sift_cudasift_common[@]}" \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
+run_eval "CudaSift_4k+NN" \
+    "${CudaSift_4k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
     model.matcher.distance_thresh=0.7 \
     model.matcher.ratio_thresh=0.7
 
-run_eval "00-sift_cudasift+lg_official" \
-    "${sift_cudasift_common[@]}" \
-    "${lg_official_common[@]}" \
+run_eval "CudaSift_2k+LG-SiftGPU_official" \
+    "${CudaSift_2k_common[@]}" \
+    "${LG_official_common[@]}" \
     model.matcher.features=sift \
-    "${lg_common[@]}"
+    "${LG_common[@]}"
+run_eval "CudaSift_4k+LG-SiftGPU_official" \
+    "${CudaSift_4k_common[@]}" \
+    "${LG_official_common[@]}" \
+    model.matcher.features=sift \
+    "${LG_common[@]}"
 
-run_eval "03-sift_cudasift+lg_OP_HOMO" \
-    "${sift_cudasift_common[@]}" \
+run_eval "CudaSift_2k+LG-CudaSift_ours" \
+    "${CudaSift_2k_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/03-py_cudasift+lg_OP_HOMO/checkpoint_best.tar
-
-run_eval "sift_cudasift+roma" \
-    "${sift_cudasift_common[@]}" \
-    "${roma_common[@]}" \
-    model.matcher.weights=indoor
-
-run_eval "05-sift_cudasift+lg_ENDO_HOMO" \
-    "${sift_cudasift_common[@]}" \
+    "${LG_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
+run_eval "CudaSift_4k+LG-CudaSift_ours" \
+    "${CudaSift_4k_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/05-sift_cudasift+lg_ENDO_HOMO/checkpoint_best.tar
-
-run_eval "04-sift_cudasift+lg_MD_3D" \
-    "${sift_cudasift_common[@]}" \
-    model.matcher.name=matchers.lightglue \
-    model.matcher.features=sift \
-    "${lg_common[@]}" \
+    "${LG_common[@]}" \
     checkpoint=/workspace/data/training_outputs/04-py_cudasift+lg_MD_3D/checkpoint_best.tar
 
-run_eval "sift_cudasift+02_lg_MD_3D_pycolmap" \
-    "${sift_cudasift_common[@]}" \
+run_eval "CudaSift_2k+LG-colon_ours" \
+    "${CudaSift_2k_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/02-py_colmap+lg_MD_3D/checkpoint_best.tar
-
-run_eval "10-sift_cudasift+lg_ENDO_3D_SPARSE" \
-    "${sift_cudasift_common[@]}" \
+    "${LG_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/11-cudasift+lg_ENDO_ROMA_ft_04_pos_neg_ign_specular_mask/checkpoint_best.tar
+run_eval "CudaSift_4k+LG-colon_ours" \
+    "${CudaSift_4k_common[@]}" \
     model.matcher.name=matchers.lightglue \
     model.matcher.features=sift \
-    "${lg_common[@]}" \
-    checkpoint=/workspace/data/training_outputs/10-sift_cudasift+lg_ENDO_3D_SPARSE/checkpoint_best.tar
+    "${LG_common[@]}" \
+    checkpoint=/workspace/data/training_outputs/11-cudasift+lg_ENDO_ROMA_ft_04_pos_neg_ign_specular_mask/checkpoint_best.tar
 
+run_eval "CudaSift_2k+RoMa" \
+    "${CudaSift_2k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
+run_eval "CudaSift_4k+RoMa" \
+    "${CudaSift_4k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
 #endregion
 
 #region ALIKED-n16
-run_eval "aliked+nn" \
-    "${aliked_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.mutual_check=True
-
-run_eval "aliked+nn_th" \
-    "${aliked_common[@]}" \
+run_eval "ALIKED_2k+NN" \
+    "${ALIKED_2k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
-    model.matcher.distance_thresh=0.7
-
-run_eval "aliked+nn_th_ratio" \
-    "${aliked_common[@]}" \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
+run_eval "ALIKED_4k+NN" \
+    "${ALIKED_4k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
     model.matcher.distance_thresh=0.7 \
     model.matcher.ratio_thresh=0.7
 
-run_eval "aliked+lightglue_official" \
-    "${aliked_common[@]}" \
-    "${lg_official_common[@]}" \
+run_eval "ALIKED_2k+LG-ALIKED" \
+    "${ALIKED_2k_common[@]}" \
+    "${LG_official_common[@]}" \
     model.matcher.features=aliked \
-    "${lg_common[@]}"
+    "${LG_common[@]}"
+run_eval "ALIKED_4k+LG-ALIKED" \
+    "${ALIKED_4k_common[@]}" \
+    "${LG_official_common[@]}" \
+    model.matcher.features=aliked \
+    "${LG_common[@]}"
 
-run_eval "aliked+roma" \
-    "${aliked_common[@]}" \
-    "${roma_common[@]}" \
-    model.matcher.weights=indoor
+run_eval "ALIKED_2k+RoMa" \
+    "${ALIKED_2k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
+run_eval "ALIKED_4k+RoMa" \
+    "${ALIKED_4k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
 #endregion
 
 #region DISK
-run_eval "disk+nn" \
-    "${disk_common[@]}" \
-    model.matcher.name=nearest_neighbor_matcher \
-    model.matcher.mutual_check=True
-
-run_eval "disk+nn_th" \
-    "${disk_common[@]}" \
+run_eval "DISK_2k+NN" \
+    "${DISK_2k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
-    model.matcher.distance_thresh=0.7
-
-run_eval "disk+nn_th_ratio" \
-    "${disk_common[@]}" \
+    model.matcher.distance_thresh=0.7 \
+    model.matcher.ratio_thresh=0.7
+run_eval "DISK_4k+NN" \
+    "${DISK_4k_common[@]}" \
     model.matcher.name=nearest_neighbor_matcher \
     model.matcher.mutual_check=True \
     model.matcher.distance_thresh=0.7 \
     model.matcher.ratio_thresh=0.7
 
-run_eval "disk+lightglue_official" \
-    "${disk_common[@]}" \
-    "${lg_official_common[@]}" \
+run_eval "DISK_2k+LG-DISK" \
+    "${DISK_2k_common[@]}" \
+    "${LG_official_common[@]}" \
     model.matcher.features=disk \
-    "${lg_common[@]}"
+    "${LG_common[@]}"
+run_eval "DISK_4k+LG-DISK" \
+    "${DISK_4k_common[@]}" \
+    "${LG_official_common[@]}" \
+    model.matcher.features=disk \
+    "${LG_common[@]}"
 
-run_eval "disk+roma" \
-    "${disk_common[@]}" \
-    "${roma_common[@]}" \
-    model.matcher.weights=indoor
+run_eval "DISK_2k+RoMa" \
+    "${DISK_2k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
+run_eval "DISK_4k+RoMa" \
+    "${DISK_4k_common[@]}" \
+    "${RoMa_common[@]}" \
+    model.matcher.weights=outdoor
 #endregion
 
-#region ROMA
-run_eval "roma_indoor" \
-    "${roma_common[@]}" \
+#region RoMa
+run_eval "RoMa_2k" \
+    "${RoMa_common[@]}" \
     model.matcher.internal_hw=[630,630] \
-    model.matcher.sample_num_matches=5000 \
-    model.matcher.weights=indoor
-
-run_eval "roma_outdoor" \
-    "${roma_common[@]}" \
-    model.matcher.internal_hw=[630,630] \
-    model.matcher.sample_num_matches=5000 \
+    model.matcher.sample_num_matches=2048 \
     model.matcher.weights=outdoor
-
-run_eval "roma_indoor_2048" \
-    "${roma_common[@]}" \
+run_eval "RoMa_4k" \
+    "${RoMa_common[@]}" \
     model.matcher.internal_hw=[630,630] \
-    model.matcher.sample_num_matches=2048 \
-    model.matcher.weights=indoor
-
-run_eval "roma_outdoor_2048" \
-    "${roma_common[@]}" \
-    model.matcher.internal_hw=[630,630] \
-    model.matcher.sample_num_matches=2048 \
+    model.matcher.sample_num_matches=4096 \
     model.matcher.weights=outdoor
 #endregion
 
