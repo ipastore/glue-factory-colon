@@ -196,6 +196,7 @@ def check_npz(
             zip_info = f"zipfile.testzip failed: {zip_error}"
         return False, f"Failed to load NPZ: {e} | {zip_info}", []
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Check for corrupted/missing NPZ files and referenced images."
@@ -324,6 +325,19 @@ def main():
             for npz_name, img_path, error in all_missing_images:
                 f.write(f"{npz_name}\t{img_path}\t{error}\n")
         print(f"Saved missing images list to: {output}")
+        deleted = 0
+        failed = []
+        for _, img_path, _ in all_missing_images:
+            if not img_path.exists():
+                continue
+            try:
+                img_path.unlink()
+                deleted += 1
+            except Exception as e:
+                failed.append((img_path, e))
+        print(f"Deleted {deleted} corrupted images from disk")
+        for path, error in failed:
+            print(f"Failed to delete {path}: {error}")
     
     if corrupted_npz or all_missing_images:
         return 1

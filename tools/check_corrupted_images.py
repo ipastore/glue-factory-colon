@@ -94,6 +94,19 @@ def run_check(scan_dir: Path, label: str, output_path: Path, black_threshold: in
             for path, error in corrupted:
                 f.write(f"{path}\t{error}\n")
         print(f"Saved to {output_path}")
+        deleted = 0
+        failed = []
+        for path, _ in corrupted:
+            if not path.exists():
+                continue
+            try:
+                path.unlink()
+                deleted += 1
+            except Exception as e:
+                failed.append((path, e))
+        print(f"Deleted {deleted} corrupted/black images from disk")
+        for path, error in failed:
+            print(f"Failed to delete {path}: {error}")
 
 
 def main():
