@@ -19,8 +19,8 @@ data:
     grayscale: false
     load_features:
         do: true
-        path: exports/endomapper-roma-cudasift-k2048_no_scale/{seq_map}.h5
-        padding_length: 2048
+        path: exports/endomapper-roma-cudasift-k4096_no_scale/{seq_map}.h5
+        padding_length: 4096
         padding_fn: pad_local_features
         data_keys: ["keypoints", "keypoint_scores", "descriptors", "oris", "scales"] #* #eraesd: , "depth_keypoints", "valid_depth_keypoints"
 
@@ -31,7 +31,7 @@ model:
             name: null
             # name: extractors.sift
             # backend: py_cudasift
-            # max_num_keypoints: 1024
+            # max_num_keypoints: 4096
             # force_num_keypoints: True
             # nms_radius: 3
             # detection_threshold: 0.0000667
@@ -40,7 +40,10 @@ model:
             # num_octaves: 4
             # init_blur: 1.0
             # extractor_channel: grayscale
-            # filter_kpts_with_wrapper: False           # Only for py_cudasift. Truncate max kpts as Cudasift
+            # filter_kpts_with_wrapper: True            # Only for py_cudasift. Apply wrapper top cap first.
+            # max_num_keypoints_after_wrapper: 8000     # Only for py_cudasift. Wrapper cap before masks/final top-k.
+            # use_score_filter: True                    # Only for py_cudasift. Use wrapper score filtering.
+            # use_per_octave_cap: True                  # Only for py_cudasift. Use wrapper per-octave cap.
             # filter_with_scale_weighting: False      # for all that has scores. Multiply scores by scales.
             # filter_with_lowest_scale: False      # Default is false. Only for those who dont have scores, scale as filter proxy.  
             # random_topk: False # if True, pick random

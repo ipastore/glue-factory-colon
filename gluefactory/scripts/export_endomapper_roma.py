@@ -15,7 +15,7 @@ from .export_megadepth import configs, resize
 
 SEQ_LISTS_PATH = Path(__file__).resolve().parents[1] / "datasets" / "endomapper_roma_seq_lists"
 
-n_kpts = 1024
+n_kpts = 4096
 configs = {
     "sp": {
         "name": f"SP-k{n_kpts}-nms3",
@@ -78,7 +78,7 @@ configs = {
         },
     }, 
     "py-cudasift": {
-        # "name": f"py-cudasift-k{n_kpts}", endomapper-roma-cudasift-k1024_no_scale/{seq_map}
+        # "name": f"py-cudasift-k{n_kpts}", endomapper-roma-cudasift-k4096_no_scale/{seq_map}
         "name": f"cudasift-k{n_kpts}_no_scale",
         "keys": ["keypoints", "descriptors", "keypoint_scores", "oris", "scales"],
         "gray": False,
@@ -94,7 +94,10 @@ configs = {
             "num_octaves": 3,
             "init_blur": 2.0,
             "extractor_channel": "green",
-            "filter_kpts_with_wrapper": False ,          # Only for py_cudasift. Truncate max kpts as Cudasift
+            "filter_kpts_with_wrapper": True ,          # Only for py_cudasift. Apply wrapper top cap first.
+            "max_num_keypoints_after_wrapper": 8000 ,   # Only for py_cudasift. Wrapper cap before masks/final top-k.
+            "use_score_filter": True ,
+            "use_per_octave_cap": True ,
             "filter_with_scale_weighting": False ,     # for all that has scores. Multiply scores by scales.
             "filter_with_lowest_scale": False ,     # Default is false. Only for those who dont have scores, scale as filter proxy.  
             "random_topk": False # if True, pick random topk even when scores are available 

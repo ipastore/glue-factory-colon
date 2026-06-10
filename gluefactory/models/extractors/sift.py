@@ -106,6 +106,9 @@ class SIFT(BaseModel):
         "num_octaves": 4,
         "init_blur": 1.0,  # used by py_cudasift
         "filter_kpts_with_wrapper": True,  # only used by py_cudasift
+        "max_num_keypoints_after_wrapper": 8000,  # only used by py_cudasift
+        "use_score_filter": True,  # only used by py_cudasift
+        "use_per_octave_cap": True,  # only used by py_cudasift
         "filter_with_scale_weighting": False,  # if true: rank by abs(score) * scale
         "extractor_channel": "grayscale",  # in {grayscale, red, green, blue}
         "filter_with_lowest_scale": False,  # keep smallest scales when no scores
@@ -238,7 +241,7 @@ class SIFT(BaseModel):
         elif self.conf.backend in {"py_cudasift", "py_Cudasift", "py_CudaSift"}:
             image_np = np.clip(image_np * 255.0, 0.0, 255.0)
             max_pts = (
-                self.conf.max_num_keypoints
+                self.conf.max_num_keypoints_after_wrapper
                 if self.conf.filter_kpts_with_wrapper
                 else 100000
             )
@@ -256,6 +259,8 @@ class SIFT(BaseModel):
                     thresh=self.conf.detection_threshold,
                     lowest_scale=float(self.conf.first_octave),
                     max_pts=max_pts,
+                    use_score_filter=bool(self.conf.use_score_filter),
+                    use_per_octave_cap=bool(self.conf.use_per_octave_cap),
                     #edge_threshold is hardoceded at 10 inside CudaSift
                 )
             )

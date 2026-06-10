@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import zipfile
-# from tqdm import tqdm
+from tqdm import tqdm
 
 try:
     import cv2
@@ -145,7 +145,7 @@ def check_npz(
                 image_names = data['image_names']
                 
                 # Build path to keyframes directory
-                keyframes_dir = data_root / seq_name / "output" / "3D_maps" / map_id / "keyframes"
+                keyframes_dir = data_root / seq_name / "1" / "3D_maps" / map_id / "keyframes"
                 
                 if not keyframes_dir.exists():
                     data.close()
@@ -228,7 +228,7 @@ def main():
     args = parser.parse_args()
 
     # Root directory containing sequences
-    data_root = Path("/home/ecs/glue-factory-colon/data/slam-results_long_sequences_ENE26")
+    data_root = Path("/media/student/HDD/nacho/glue-factory/data/slam-results-JUN26")
     npz_subdir = "processed_npz"
     
     npz_dir = data_root / npz_subdir
@@ -271,7 +271,7 @@ def main():
     corrupted_npz = []
     all_missing_images = []
     
-    for npz_path in npz_files:
+    for npz_path in tqdm(npz_files, desc="Checking NPZ files"):
         result, error, missing_images = check_npz(
             npz_path,
             data_root,

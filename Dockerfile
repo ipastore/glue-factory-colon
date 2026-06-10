@@ -13,6 +13,7 @@ ARG CUDATOOLKIT_VERSION=11.4
 ARG PYTORCH_VERSION=1.13.1
 ARG TORCHVISION_VERSION=0.14.1
 ARG CUDASIFT_REPO=https://github.com/ipastore/CudaSift-py-wrapper.git
+ARG CUDASIFT_BRANCH=score-filter
 ARG CUDASIFT_CUDA_ARCHS=70
 ARG CUDASIFT_CUDA_ARCHS_SM=7.0
 ARG CUDASIFT_DIR=/opt/CudaSift-py-wrapper
@@ -162,7 +163,7 @@ PYCODE
 # Build CudaSift Python wrapper in release mode and validate import.
 # Keep it outside /workspace so bind-mounting /workspace at runtime does not hide it.
 RUN mkdir -p /opt && \
-    git clone "${CUDASIFT_REPO}" "${CUDASIFT_DIR}" && \
+    git clone --branch "${CUDASIFT_BRANCH}" "${CUDASIFT_REPO}" "${CUDASIFT_DIR}" && \
     . "${CONDA_DIR}/etc/profile.d/conda.sh" && \
     conda activate "${CONDA_ENV}" && \
     cd "${CUDASIFT_DIR}" && \
