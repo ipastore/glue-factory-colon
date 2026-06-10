@@ -106,7 +106,7 @@ def _extract_frames_for_sequence(
         print(f"  [warn] Frames not found: {frames_dir}")
         return False
 
-    maps_root = seq_dir / "output" / "3D_maps"
+    maps_root = seq_dir / "1" / "3D_maps"
     if not maps_root.exists():
         print(f"  [warn] No 3D_maps directory: {maps_root}")
         return False
@@ -170,7 +170,7 @@ def _extract_frames_from_video(
         print(f"  [warn] Video not found: {video_path}")
         return False
 
-    maps_root = seq_dir / "output" / "3D_maps"
+    maps_root = seq_dir / "1" / "3D_maps"
     if not maps_root.exists():
         print(f"  [warn] No 3D_maps directory: {maps_root}")
         return False
@@ -202,7 +202,7 @@ def _find_sequences(root: Path, names: List[str] | None) -> List[Path]:
 
 
 def _find_map_ids(seq_dir: Path, map_ids: List[str] | None) -> List[str]:
-    maps_root = seq_dir / "output" / "3D_maps"
+    maps_root = seq_dir / "1" / "3D_maps"
     if map_ids is not None:
         return [str(mid) for mid in map_ids]
     if not maps_root.exists():
@@ -211,7 +211,7 @@ def _find_map_ids(seq_dir: Path, map_ids: List[str] | None) -> List[str]:
 
 
 def _load_sequence_colmap(seq_dir: Path, map_id: str):
-    colmap_dir = seq_dir / "output" / "3D_maps" / str(map_id)
+    colmap_dir = seq_dir / "1" / "3D_maps" / str(map_id)
     cameras = read_cameras_txt(colmap_dir / "cameras.txt")
     images = read_images_txt(colmap_dir / "images.txt")
     # points3d = read_points3D_txt(colmap_dir / "points3D.txt")
@@ -257,8 +257,8 @@ def process_sequence(
     poses = extract_poses(images)
     cameras_npz, camera_indices = extract_cameras_npz(cameras, images)
 
-    # features_dir = seq_dir / f"output/3D_maps/{map_id}/features"
-    # depths_dir = seq_dir / f"output/3D_maps/{map_id}/depths"
+    # features_dir = seq_dir / f"1/3D_maps/{map_id}/features"
+    # depths_dir = seq_dir / f"1/3D_maps/{map_id}/depths"
 
     # keypoints_list: List[np.ndarray] = []
     # descriptors_list: List[np.ndarray] = []
@@ -319,14 +319,14 @@ def process_sequence(
     overlap_matrix = compute_overlap_matrix(point3d_ids_list)
     # point3d_ids_all, point3d_coords_all = _collect_point3d_arrays(points3d)
 
-    keyframes_dir = seq_dir / "output" / "3D_maps" / str(map_id) / "keyframes"
+    keyframes_dir = seq_dir / "1" / "3D_maps" / str(map_id) / "keyframes"
     specular_mask_paths: List[str] = []
     for image_name in image_names:
         image_name_str = str(image_name)
         keyframe_path = keyframes_dir / f"Keyframe_{image_name_str}.png"
         specular_rel_path = (
             Path(seq_dir.name)
-            / "output"
+            / "1"
             / "3D_maps"
             / str(map_id)
             / "specular_masks"
@@ -436,7 +436,7 @@ def main():
                 else _find_map_ids(seq_dir, None)
             )
             if not map_ids:
-                print(f"[skip] {seq_dir.name}: no maps under output/3D_maps/")
+                print(f"[skip] {seq_dir.name}: no maps under 1/3D_maps/")
                 continue
             if frames_root:
                 _extract_frames_for_sequence(seq_dir, frames_root, map_ids)
@@ -456,7 +456,7 @@ def main():
             else _find_map_ids(seq_dir, None)
         )
         if not map_ids:
-            print(f"[skip] {seq_dir.name}: no maps under output/3D_maps/")
+            print(f"[skip] {seq_dir.name}: no maps under 1/3D_maps/")
             continue
         for map_id in map_ids:
             out_path = out_dir / f"{seq_dir.name}_map{map_id}.npz"
