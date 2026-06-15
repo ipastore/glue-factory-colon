@@ -1091,7 +1091,9 @@ def training(rank, conf, output_dir, args):
             _log_loader_stats("Val", val_loader)
             if overfit_loader is not None:
                 _log_loader_stats("Overfit", overfit_loader)
+        saved_epoch_checkpoint = False
         for it, data in enumerate(train_loader):
+            saved_checkpoint_this_iter = False
             tot_it = (len(train_loader) * epoch + it) * (
                 args.n_gpus if args.distributed else 1
             )
@@ -1258,10 +1260,20 @@ def training(rank, conf, output_dir, args):
                         save_eval_figures(
                             figures, save_dir, f"E{epoch}"
                         )
-                    # @TODO: optional always save checkpoint
-                    if results[conf.train.best_key] < best_eval:
-                        best_eval = results[conf.train.best_key]
-                        save_experiment(
+                    current_eval = results[conf.train.best_key]
+                    logger.info(
+                        "Best checkpoint metric: current %s=%.6g, best=%.6g",
+                        conf.train.best_key,
+                        current_eval,
+                        best_eval,
+                    )
+                    save_after_val = (
+                        (tot_it % conf.train.save_every_iter == 0 and tot_it > 0)
+                        or stop
+                        or it == (len(train_loader) - 1)
+                    )
+                    if save_after_val or current_eval < best_eval:
+                        best_eval = save_experiment(
                             model,
                             optimizer,
                             lr_scheduler,
@@ -1273,9 +1285,11 @@ def training(rank, conf, output_dir, args):
                             output_dir,
                             stop,
                             args.distributed,
-                            cp_name="checkpoint_best.tar",
                         )
-                        logger.info(f"New best val: {conf.train.best_key}={best_eval}")
+                        saved_checkpoint_this_iter = True
+                        saved_epoch_checkpoint = save_after_val and (
+                            stop or it == (len(train_loader) - 1)
+                        )
                 if overfit_loader is not None:
                     with fork_rng(seed=conf.train.seed):
                         (
@@ -1343,7 +1357,9 @@ def training(rank, conf, output_dir, args):
                 torch.cuda.empty_cache()  # should be cleared at the first iter
 
             if (tot_it % conf.train.save_every_iter == 0 and tot_it > 0) and rank == 0:
-                if results is None:
+                if saved_checkpoint_this_iter:
+                    pass
+                elif results is None:
                     results, _, _, _ = do_evaluation(
                         model,
                         val_loader,
@@ -1366,23 +1382,37 @@ def training(rank, conf, output_dir, args):
                             )
                         ),
                     )
-                best_eval = save_experiment(
-                    model,
-                    optimizer,
-                    lr_scheduler,
-                    conf,
-                    results,
-                    best_eval,
-                    epoch,
-                    tot_it,
-                    output_dir,
-                    stop,
-                    args.distributed,
-                )
+                    best_eval = save_experiment(
+                        model,
+                        optimizer,
+                        lr_scheduler,
+                        conf,
+                        results,
+                        best_eval,
+                        epoch,
+                        tot_it,
+                        output_dir,
+                        stop,
+                        args.distributed,
+                    )
+                else:
+                    best_eval = save_experiment(
+                        model,
+                        optimizer,
+                        lr_scheduler,
+                        conf,
+                        results,
+                        best_eval,
+                        epoch,
+                        tot_it,
+                        output_dir,
+                        stop,
+                        args.distributed,
+                    )
             if stop:
                 break
 
-        if rank == 0:
+        if rank == 0 and not saved_epoch_checkpoint:
             best_eval = save_experiment(
                 model,
                 optimizer,
